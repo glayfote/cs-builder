@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: buildtool-dev
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    stdin_open: true
+    tty: true
+    environment:
+      TZ: Asia/Tokyo
+
+volumes:
+  go-mod-cache:
+  go-build-cache:
