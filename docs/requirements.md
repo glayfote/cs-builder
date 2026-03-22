@@ -90,16 +90,26 @@ Go（Cobra + Bubble Tea）で C# ソリューション向けの CLI / TUI ビル
 
 ## 7. リポジトリ現状
 
-- `main.go` / `cmd/root.go` / `cmd/build.go` はスケルトン。
+- `main.go` / `cmd/root.go`: Cobra ルートと永続フラグ `--config`。
+- **`scan` サブコマンド**: 設定読込・パス検証・`.sln` 探索・stdout 列挙まで実装済み（詳細な処理順は [**application-flow.md**](application-flow.md)）。
+- `cmd/build.go`: メッセージのみのスケルトン（未実装）。
 - [`directory.md`](directory.md) は別プロジェクトのテンプレであり、本リポジトリの最終構成を表さない。実装・要件に合わせて README または本ディレクトリのドキュメントを更新する。
 
 ---
 
-## 8. 次のステップ（要件確定後）
+## 8. アプリケーション処理フロー（仕様）
+
+起動から各コマンド完了までの**処理順・設定解決・スキャンアルゴリズム**は [**application-flow.md**](application-flow.md) に集約する（実装と将来予定を区別して記載）。**TUI の画面遷移とシーケンス**は [**tui-flow.md**](tui-flow.md)（設計案・未実装）。
+
+---
+
+## 9. 次のステップ（要件確定後）
 
 **第6節**を埋める → コマンド設計（サブコマンド名・フラグ）。[設定は config-spec.md](config-spec.md) を実装に合わせて更新 → 最小構成から実装。
 
-### 処理のざっくり流れ（参考）
+### 処理のざっくり流れ（参考・全体像）
+
+詳細は [**application-flow.md**](application-flow.md)。以下は要件レベルのブロック図。
 
 ```mermaid
 flowchart LR
