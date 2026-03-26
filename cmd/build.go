@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// buildCmd は非対話の一括ビルド用に予約されたサブコマンド（未実装）。
+// 対話ビルドはルートコマンドの RunE（TTY 時ウィザード）で行う。
 var buildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Build solutions (not implemented yet)",

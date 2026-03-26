@@ -1,3 +1,5 @@
+// Package scan は cs-builder.yaml の scan_roots に基づき、ディスク上の .sln を探索する。
+// 枝刈り規則（.sln があるディレクトリ以下は降りない、bin/obj 等はスキップ）を internal 側で一元管理する。
 package scan
 
 import (
@@ -42,12 +44,14 @@ func FindSolutions(cfg *config.Config) ([]Solution, error) {
 		return nil, err
 	}
 	var out []Solution
+	// 複数 scan_root や同一ファイルの重複列挙を防ぐ（キーはクリーン済み絶対パス）。
 	seen := make(map[string]struct{})
 	excl := scanExcludeNameSet(cfg)
 
 	for _, scanRel := range cfg.ScanRoots {
 		scanRel = strings.TrimSpace(scanRel)
 		scanAbs := filepath.Join(root, filepath.FromSlash(scanRel))
+		// 各ルートは独立したサブツリーとして深さ優先走査する。
 		if err := walkScanTree(scanAbs, scanAbs, scanRel, excl, seen, &out); err != nil {
 			return nil, err
 		}
@@ -60,6 +64,7 @@ func FindSolutions(cfg *config.Config) ([]Solution, error) {
 }
 
 // walkScanTree は scanAbs を根とするサブツリー内を探索する。dir は現在のディレクトリ（絶対パス）。
+// 直下に .sln があればそのディレクトリは「末端」とみなし子へは進まない。
 func walkScanTree(scanAbs, dir, scanRel string, excl map[string]struct{}, seen map[string]struct{}, out *[]Solution) error {
 	slns, err := slnFilesInDir(dir)
 	if err != nil {
@@ -73,6 +78,7 @@ func walkScanTree(scanAbs, dir, scanRel string, excl map[string]struct{}, seen m
 			if !addUnique(seen, p) {
 				continue
 			}
+			// TUI のパッケージ／テナント表示用に、scan_root から .sln 親フォルダまでの相対パスを分解する。
 			pkgDir, tenant := solutionLabelsUnderScanRoot(scanAbs, filepath.Dir(p))
 			*out = append(*out, Solution{
 				Path:       p,
@@ -81,6 +87,7 @@ func walkScanTree(scanAbs, dir, scanRel string, excl map[string]struct{}, seen m
 				Tenant:     tenant,
 			})
 		}
+		// 子ディレクトリに別の .sln があっても探索しない（モノレポ運用の前提）。
 		return nil
 	}
 
@@ -107,6 +114,7 @@ func walkScanTree(scanAbs, dir, scanRel string, excl map[string]struct{}, seen m
 }
 
 // solutionLabelsUnderScanRoot は .sln の親ディレクトリ slnParentDir について、scanAbs からの相対パスから PackageDir / Tenant を求める。
+// 第 1 パスセグメントを PackageDir、残りを "/" 結合した Tenant とする（1 セグメントのみなら Tenant は空）。
 func solutionLabelsUnderScanRoot(scanAbs, slnParentDir string) (packageDir, tenant string) {
 	rel, err := filepath.Rel(scanAbs, slnParentDir)
 	if err != nil {
@@ -145,6 +153,7 @@ func scanExcludeNameSet(cfg *config.Config) map[string]struct{} {
 	return m
 }
 
+// scanExcludeName はディレクトリ名が除外セットに含まれるかを返す（大文字小文字無視）。
 func scanExcludeName(set map[string]struct{}, dirName string) bool {
 	_, ok := set[strings.ToLower(dirName)]
 	return ok

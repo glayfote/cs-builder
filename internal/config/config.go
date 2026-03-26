@@ -1,3 +1,5 @@
+// Package config は cs-builder.yaml の読み込み、既定値の補完、検証、および project_root の解決を担当する。
+// スキーマの人間向け説明は docs/config-spec.md を参照する。
 package config
 
 import (
@@ -54,7 +56,10 @@ type ArtifactsConfig struct {
 }
 
 // Load は設定ファイルのパスを決め、読み込み・ApplyDefaults・Validate まで行う。
-// explicitPath が空でないときはそのパスのみを読む（例: --config）。戻り値の string は実際に読んだファイルパス。
+//
+// explicitPath が空でないときはそのパスのみを読む（例: Cobra の --config）。
+// 空のときは環境変数 CS_BUILDER_CONFIG、なければカレントディレクトリの cs-builder.yaml を試す。
+// 戻り値の string は実際に読み取りに成功したファイルパスである。
 func Load(explicitPath string) (*Config, string, error) {
 	path, err := resolveConfigPath(explicitPath)
 	if err != nil {
@@ -95,7 +100,7 @@ func (c *Config) ApplyDefaults() {
 	}
 }
 
-// resolveConfigPath は読むべき設定ファイルの絶対パス（またはクリーン済みパス）を返す。
+// resolveConfigPath は読むべき設定ファイルのパスを返す（クリーン済み。必ずしも実在確認までは行わない）。
 // 優先順: explicitPath（非空）→ 環境変数 CS_BUILDER_CONFIG → cwd の cs-builder.yaml。
 func resolveConfigPath(explicitPath string) (string, error) {
 	if strings.TrimSpace(explicitPath) != "" {
@@ -111,7 +116,8 @@ func resolveConfigPath(explicitPath string) (string, error) {
 	return filepath.Join(wd, DefaultConfigFileName), nil
 }
 
-// Validate は必須項目と config-spec 上の制約を検査する（Load 内でも呼ばれる）。
+// Validate は必須項目と config-spec 上の制約を検査する。
+// Load は Unmarshal 直後に必ず本関数を呼ぶ。パス実在チェックは ValidatePaths の責務。
 func (c *Config) Validate() error {
 	if c.Version > 0 && c.Version != SupportedVersion {
 		return fmt.Errorf("unsupported config version %d (supported %d)", c.Version, SupportedVersion)

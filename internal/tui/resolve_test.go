@@ -19,6 +19,13 @@ func TestFilterByTenant1(t *testing.T) {
 	}
 }
 
+func TestBuildSlnPickEntries(t *testing.T) {
+	entries := buildSlnPickEntries(sampleSolutions())
+	if len(entries) != 3 {
+		t.Fatalf("len = %d, want 3", len(entries))
+	}
+}
+
 func TestBuildPackagePickEntries(t *testing.T) {
 	entries := buildPackagePickEntries(sampleSolutions())
 	if len(entries) != 3 {

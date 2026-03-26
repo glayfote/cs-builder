@@ -14,6 +14,7 @@ var scanVerbose bool
 
 // scanCmd は設定に基づきモノレポ内の .sln を探索し、結果を標準出力に列挙する。
 // 設定の読み込みは config.Load（--config / 環境変数 / cwd の cs-builder.yaml）。
+// 各行 1 パスの絶対パスを stdout に出すため、シェルスクリプトからパイプしやすい。
 var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "List discovered .sln files from config",

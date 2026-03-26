@@ -9,6 +9,7 @@ import (
 	"builder/cs-builder/internal/scan"
 )
 
+// filterByTenant は tenant が TenantAll のときは all のコピー、それ以外は Tenant が一致する Solution だけを返す。
 func filterByTenant(all []scan.Solution, tenant string) []scan.Solution {
 	if tenant == TenantAll {
 		out := make([]scan.Solution, len(all))
@@ -24,18 +25,38 @@ func filterByTenant(all []scan.Solution, tenant string) []scan.Solution {
 	return out
 }
 
-// pickEntry は手順 4 の一覧の 1 行。paths はその選択でビルド対象になる .sln（絶対パス）。
+// pickEntry はウィザードのチェックリスト 1 行を表す。
+// Paths はその行を選んだときにビルド対象となる .sln の絶対パス（通常 1 要素。集約行では複数）。
 type pickEntry struct {
 	Label string
 	Paths []string
 }
 
+// buildSlnPickEntries はテナントフィルタ後の各 Solution を 1 行ずつ並べる（Path 昇順）。
+func buildSlnPickEntries(filtered []scan.Solution) []pickEntry {
+	sols := append([]scan.Solution(nil), filtered...)
+	sort.Slice(sols, func(i, j int) bool {
+		return sols[i].Path < sols[j].Path
+	})
+	out := make([]pickEntry, 0, len(sols))
+	for _, s := range sols {
+		p := filepath.Clean(s.Path)
+		out = append(out, pickEntry{
+			Label: p,
+			Paths: []string{p},
+		})
+	}
+	return out
+}
+
+// pkgKey は (ScanRoot, PackageDir) でソリューションをグルーピングするためのキー。
 type pkgKey struct {
 	ScanRoot   string
 	PackageDir string
 }
 
-// buildPackagePickEntries は (ScanRoot, PackageDir) ごとにまとめた候補を返す。
+// buildPackagePickEntries はフィルタ済み Solution を (ScanRoot, PackageDir) ごとにまとめ、
+// 1 パッケージ＝1 行の pickEntry に変換する。同一グループ内の .sln パスはソートする。
 func buildPackagePickEntries(filtered []scan.Solution) []pickEntry {
 	m := make(map[pkgKey][]string)
 	for _, s := range filtered {
@@ -68,12 +89,14 @@ func buildPackagePickEntries(filtered []scan.Solution) []pickEntry {
 	return out
 }
 
+// folderKey はフォルダ単位選択のキー。PackageDir が空のときは「その scan_root 配下すべて」を意味する。
 type folderKey struct {
 	ScanRoot   string
-	PackageDir string // 空なら scan_root 全体
+	PackageDir string
 }
 
-// buildFolderPickEntries は scan_root 全体、または scan_root 直下パッケージフォルダ単位の候補を返す。
+// buildFolderPickEntries は scan_root 全体行と、PackageDir ごとの行を生成する。
+// 各行の Paths は該当スコープに含まれる .sln パス（重複は uniqSortedPaths で除去）。
 func buildFolderPickEntries(filtered []scan.Solution) []pickEntry {
 	seen := make(map[folderKey]struct{})
 	for _, s := range filtered {
@@ -120,6 +143,7 @@ func buildFolderPickEntries(filtered []scan.Solution) []pickEntry {
 	return out
 }
 
+// uniqSortedPaths はソート済みパスから隣接重複（Clean 後同一）を除いたスライスを返す。
 func uniqSortedPaths(paths []string) []string {
 	if len(paths) <= 1 {
 		return paths
@@ -137,7 +161,7 @@ func uniqSortedPaths(paths []string) []string {
 	return out
 }
 
-// pathsFromPickSelection は選択した pickEntry の Paths を結合し重複除去する。
+// pathsFromPickSelection は選択された pickEntry インデックスに対応する Paths を結合し、重複を除去する。
 func pathsFromPickSelection(entries []pickEntry, selected map[int]struct{}) []string {
 	var acc []string
 	for i := range selected {
@@ -149,6 +173,7 @@ func pathsFromPickSelection(entries []pickEntry, selected map[int]struct{}) []st
 	return uniqSortedPaths(acc)
 }
 
+// joinPathsPreview は paths を改行結合で表示用に整形する。max 件を超えたら「他 N 件」と省略する。
 func joinPathsPreview(paths []string, max int) string {
 	if len(paths) == 0 {
 		return "(なし)"

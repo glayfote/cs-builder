@@ -27,7 +27,7 @@ func TestFindSolutions_layout(t *testing.T) {
 	cfg := &config.Config{
 		Version:     1,
 		ProjectRoot: rootAbs,
-		ScanRoots:   []string{"2_if", "3_driver"},
+		ScanRoots:   []string{"pfm/3_common", "pfm/4_driver"},
 	}
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
@@ -37,22 +37,28 @@ func TestFindSolutions_layout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 {
+	if len(got) != 6 {
 		t.Fatalf("len=%d, got %+v", len(got), got)
 	}
-	var logger, tenant, file bool
+	var ifA, ifB, util1, util2, pkgA, pkgB bool
 	for _, s := range got {
 		switch {
-		case s.PackageDir == "logger" && s.Tenant == "":
-			logger = true
-		case s.PackageDir == "sql" && s.Tenant == "tenant1":
-			tenant = true
-		case s.PackageDir == "file" && s.ScanRoot == "3_driver":
-			file = true
+		case s.ScanRoot == "pfm/3_common" && s.PackageDir == "if" && s.Tenant == "if_a":
+			ifA = true
+		case s.ScanRoot == "pfm/3_common" && s.PackageDir == "if" && s.Tenant == "if_b":
+			ifB = true
+		case s.ScanRoot == "pfm/3_common" && s.PackageDir == "utils" && s.Tenant == "util1":
+			util1 = true
+		case s.ScanRoot == "pfm/3_common" && s.PackageDir == "utils" && s.Tenant == "util2":
+			util2 = true
+		case s.ScanRoot == "pfm/4_driver" && s.PackageDir == "pkg_a" && s.Tenant == "":
+			pkgA = true
+		case s.ScanRoot == "pfm/4_driver" && s.PackageDir == "pkg_b" && s.Tenant == "":
+			pkgB = true
 		}
 	}
-	if !logger || !tenant || !file {
-		t.Fatalf("flags logger=%v tenant=%v file=%v solutions=%+v", logger, tenant, file, got)
+	if !ifA || !ifB || !util1 || !util2 || !pkgA || !pkgB {
+		t.Fatalf("flags ifA=%v ifB=%v util1=%v util2=%v pkgA=%v pkgB=%v solutions=%+v", ifA, ifB, util1, util2, pkgA, pkgB, got)
 	}
 }
 

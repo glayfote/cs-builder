@@ -5,8 +5,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"builder/cs-builder/internal/config"
 	"builder/cs-builder/internal/scan"
 )
+
+func testWizardCfg() *config.Config {
+	c := &config.Config{Version: 1, ProjectRoot: ".", ScanRoots: []string{"x"}}
+	c.ApplyDefaults()
+	return c
+}
 
 func sampleSolutions() []scan.Solution {
 	return []scan.Solution{
@@ -17,14 +24,14 @@ func sampleSolutions() []scan.Solution {
 }
 
 func TestNewWizardEmpty(t *testing.T) {
-	m := newWizardModel(nil)
+	m := newWizardModel(nil, testWizardCfg())
 	if m.phase != wizardPhaseEmpty {
 		t.Fatalf("phase = %v, want Empty", m.phase)
 	}
 }
 
 func TestWizard_ConfigThenTenantAll(t *testing.T) {
-	var m tea.Model = newWizardModel(sampleSolutions())
+	var m tea.Model = newWizardModel(sampleSolutions(), testWizardCfg())
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	w := m.(*wizardModel)
 	if w.phase != wizardPhaseTenant {
@@ -36,8 +43,8 @@ func TestWizard_ConfigThenTenantAll(t *testing.T) {
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	w = m.(*wizardModel)
-	if w.phase != wizardPhasePackageMode {
-		t.Fatalf("phase = %v, want PackageMode", w.phase)
+	if w.phase != wizardPhaseSlnPick {
+		t.Fatalf("phase = %v, want SlnPick", w.phase)
 	}
 	if len(w.filtered) != len(sampleSolutions()) {
 		t.Fatalf("filtered len = %d", len(w.filtered))
@@ -45,13 +52,13 @@ func TestWizard_ConfigThenTenantAll(t *testing.T) {
 }
 
 func TestWizard_TenantFilterNoMatch(t *testing.T) {
-	var m tea.Model = newWizardModel(sampleSolutions())
+	var m tea.Model = newWizardModel(sampleSolutions(), testWizardCfg())
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	// tenant1 is first choice — has matches
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	w := m.(*wizardModel)
-	if w.phase != wizardPhasePackageMode {
-		t.Fatalf("phase = %v", w.phase)
+	if w.phase != wizardPhaseSlnPick {
+		t.Fatalf("phase = %v, want SlnPick", w.phase)
 	}
 	if len(w.filtered) != 1 {
 		t.Fatalf("filtered len = %d, want 1", len(w.filtered))
@@ -59,7 +66,7 @@ func TestWizard_TenantFilterNoMatch(t *testing.T) {
 }
 
 func TestWizard_BackToConfiguration(t *testing.T) {
-	var m tea.Model = newWizardModel(sampleSolutions())
+	var m tea.Model = newWizardModel(sampleSolutions(), testWizardCfg())
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
 	w := m.(*wizardModel)

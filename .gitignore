@@ -1,1 +1,6 @@
-/bin
+**/bin
+**/obj
+
+# pfm: MSBuild で 5_dll に集約した成果物（リポジトリには含めない）
+testdata/monorepo/pfm/5_dll/*.dll
+testdata/monorepo/pfm/5_dll/*.pdb
