@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Pfm.Driver.PkgA</RootNamespace>
+    <AssemblyName>Pfm.Driver.PkgA</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Pfm.Common.IfA">
+      <HintPath>..\..\5_dll\Pfm.Common.IfA.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Pfm.Common.IfB">
+      <HintPath>..\..\5_dll\Pfm.Common.IfB.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Pfm.Common.Utils.Util1">
+      <HintPath>..\..\5_dll\Pfm.Common.Utils.Util1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

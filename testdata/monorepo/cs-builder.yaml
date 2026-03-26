@@ -1,5 +1,4 @@
 version: 1
 project_root: "."
 scan_roots:
-  - "2_if"
-  - "3_driver"
+  - "pfm"

@@ -1,0 +1,11 @@
+<Project DefaultTargets="Build">
+  <!-- 依存順で MSBuild する（5_dll が空のときはこの順が必須） -->
+  <Target Name="Build">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)3_common\if\if_a\if_a.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)3_common\if\if_b\if_b.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)3_common\utils\util1\util1.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)3_common\utils\util2\util2.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)4_driver\pkg_a\pkg_a.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)4_driver\pkg_b\pkg_b.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+  </Target>
+</Project>

@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <PfmSharedDllDir>$(MSBuildThisFileDirectory)5_dll\</PfmSharedDllDir>
+  </PropertyGroup>
+  <!-- SDK プロジェクトのみ: ビルド成果物を pfm/5_dll へ集約（HintPath 参照用） -->
+  <Target Name="CopyBuiltDllToPfm5Dll" AfterTargets="Build" Condition="'$(TargetFramework)' != ''">
+    <MakeDir Directories="$(PfmSharedDllDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PfmSharedDllDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(PfmSharedDllDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+  </Target>
+</Project>
