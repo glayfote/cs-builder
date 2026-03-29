@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Pfm.Common.IfK</RootNamespace>
+    <AssemblyName>Pfm.Common.IfK</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Pfm.Common.IfA">
+      <HintPath>..\..\..\5_dll\Pfm.Common.IfA.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Pfm.Common.IfB">
+      <HintPath>..\..\..\5_dll\Pfm.Common.IfB.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Pfm.Common.IfC">
+      <HintPath>..\..\..\5_dll\Pfm.Common.IfC.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
