@@ -34,6 +34,9 @@ type Model struct {
 	baseDir   string             // .sln を探索するベースディレクトリ
 	buildOpts builder.BuildOption // ビルドコマンドのオプション (コマンド名、構成)
 
+	width  int // ターミナルの幅 (tea.WindowSizeMsg で更新)
+	height int // ターミナルの高さ (tea.WindowSizeMsg で更新)
+
 	sel   selectModel // ソリューション選択画面のサブモデル
 	build buildModel  // ビルド実行画面のサブモデル
 
@@ -111,12 +114,17 @@ func (m Model) Init() tea.Cmd {
 // メッセージの型に応じて適切なハンドラに処理を委譲する。
 //
 // 処理するメッセージ:
-//   - tea.KeyMsg     : キー入力 → handleKey で画面状態別に処理
-//   - scanDoneMsg    : スキャン完了 → handleScanDone で選択画面に遷移
-//   - buildBatchMsg  : ビルド完了 → handleBuildBatch でログ更新と次のビルド開始
-//   - tickMsg        : スピナー更新 → フレームインデックスを進める
+//   - tea.WindowSizeMsg : ターミナルサイズ変更 → width/height を更新
+//   - tea.KeyMsg        : キー入力 → handleKey で画面状態別に処理
+//   - scanDoneMsg       : スキャン完了 → handleScanDone で選択画面に遷移
+//   - buildBatchMsg     : ビルド完了 → handleBuildBatch でログ更新と次のビルド開始
+//   - tickMsg           : スピナー更新 → フレームインデックスを進める
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case scanDoneMsg:
@@ -136,7 +144,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //
 // 画面状態と描画内容:
 //   - stateScanning  : タイトル + スピナー + "探索中..." メッセージ
-//   - stateSelecting : selectModel.view() による選択リスト
+//   - stateSelecting : selectModel.view() による選択リスト (ターミナル高さ連動)
 //   - stateBuilding  : buildModel.view() による進捗表示 (スピナー付き)
 //   - stateDone      : buildModel.view() によるサマリ表示 (スピナーなし)
 func (m Model) View() string {
@@ -146,12 +154,12 @@ func (m Model) View() string {
 		return titleStyle.Render("CS Builder") + "\n\n" +
 			spinnerStyle.Render(spinner) + " .sln ファイルを探索中...\n"
 	case stateSelecting:
-		return m.sel.view()
+		return m.sel.view(m.height)
 	case stateBuilding:
 		spinner := m.spinnerFrames[m.spinnerIdx]
-		return m.build.view(spinner)
+		return m.build.view(spinner, m.height)
 	case stateDone:
-		return m.build.view("")
+		return m.build.view("", m.height)
 	}
 	return ""
 }
@@ -161,18 +169,16 @@ func (m Model) View() string {
 // handleKey はキー入力メッセージを画面状態に応じて振り分ける。
 // Ctrl+C はどの画面でもアプリケーションを即座に終了する。
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
 	// Ctrl+C は全画面共通で即座に終了
-	if key == "ctrl+c" {
+	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
 
 	switch m.state {
 	case stateSelecting:
-		return m.handleSelectKey(key)
+		return m.handleSelectKey(msg)
 	case stateDone:
-		if key == "enter" || key == "q" {
+		if key := msg.String(); key == "enter" || key == "q" {
 			return m, tea.Quit
 		}
 	}
@@ -180,15 +186,48 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleSelectKey はソリューション選択画面でのキー入力を処理する。
+// フィルタモード中は文字入力を優先し、それ以外はリスト操作を行う。
 //
-// キーバインド:
+// 通常モードのキーバインド:
 //   - up/k   : カーソルを 1 つ上に移動
 //   - down/j : カーソルを 1 つ下に移動
 //   - space  : カーソル位置のソリューションの選択をトグル
 //   - a      : 全ソリューションの選択をトグル (全選択 ↔ 全解除)
+//   - /      : フィルタモード開始
 //   - enter  : 選択中のソリューションのビルドを開始 (未選択時は無視)
 //   - q      : アプリケーションを終了
-func (m Model) handleSelectKey(key string) (tea.Model, tea.Cmd) {
+//
+// フィルタモードのキーバインド:
+//   - esc       : フィルタ解除 (全件表示に戻る)
+//   - backspace : フィルタ文字列の末尾を削除
+//   - その他文字 : フィルタ文字列に追加
+//   - up/down, space, enter, a : 通常モードと同じ動作
+func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	// フィルタモード中のテキスト入力処理
+	if m.sel.filtering {
+		switch key {
+		case "esc":
+			m.sel = m.sel.clearFilter()
+			return m, nil
+		case "backspace":
+			m.sel = m.sel.deleteFilterChar()
+			return m, nil
+		case "up", "k", "down", "j", " ", "enter", "a":
+			// リスト操作キーはフィルタモード中でもフォールスルーして通常処理
+		default:
+			// 印字可能文字をフィルタに追加する。
+			// tea.KeyMsg の Type が tea.KeyRunes の場合のみ文字として扱う。
+			if msg.Type == tea.KeyRunes {
+				for _, r := range msg.Runes {
+					m.sel = m.sel.appendFilterChar(r)
+				}
+			}
+			return m, nil
+		}
+	}
+
 	switch key {
 	case "up", "k":
 		m.sel = m.sel.cursorUp()
@@ -198,19 +237,21 @@ func (m Model) handleSelectKey(key string) (tea.Model, tea.Cmd) {
 		m.sel = m.sel.toggle()
 	case "a":
 		m.sel = m.sel.toggleAll()
+	case "/":
+		m.sel = m.sel.startFilter()
 	case "enter":
-		// 未選択状態では Enter を無視し、選択画面にとどまる
 		if !m.sel.hasSelection() {
 			return m, nil
 		}
-		// 選択されたソリューションでビルドキューを初期化し、
-		// 最初のソリューションのビルドを開始する
 		selected := m.sel.selectedSolutions()
 		m.build = newBuildModel(selected)
 		m.state = stateBuilding
 		m.build.startNext()
 		return m, m.runBuildCmd()
 	case "q":
+		if m.sel.filtering {
+			return m, nil
+		}
 		return m, tea.Quit
 	}
 	return m, nil

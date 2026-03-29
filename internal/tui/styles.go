@@ -82,4 +82,22 @@ var (
 			BorderBottom(true).
 			BorderForeground(lipgloss.Color("8")).
 			MarginBottom(1)
+
+	// filterPromptStyle はフィルタ入力行のプロンプト ("フィルタ:") に使用するスタイル。
+	// シアン太字で、入力モード中であることを視覚的に示す。
+	filterPromptStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("14")).
+				Bold(true)
+
+	// filterTextStyle はフィルタ入力中のテキストに使用する黄色スタイル。
+	filterTextStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("11"))
+
+	// scrollIndicatorStyle はスクロールバーのインジケータに使用するグレーのスタイル。
+	scrollIndicatorStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("8"))
+
+	// scrollThumbStyle はスクロールバーのつまみ (現在位置) に使用するスタイル。
+	scrollThumbStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("12"))
 )
