@@ -19,11 +19,11 @@ const (
 
 // テナント選択の値（スキャン結果の Solution.Tenant フィルタに対応。TenantAll は絞り込みなし）。
 const (
+	TenantAll = "all"
 	Tenant1   = "tenant1"
 	Tenant2   = "tenant2"
 	Tenant3   = "tenant3"
 	Tenant4   = "tenant4"
-	TenantAll = "all"
 )
 
 // ErrUserAbort はユーザーが q / Esc 等でウィザードを中断したときに RunWizard が返す。
