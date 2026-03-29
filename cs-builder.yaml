@@ -1,3 +1,38 @@
+# cs-builder 設定ファイル
+# 読み込み順: コマンドの --config → 環境変数 CS_BUILDER_CONFIG → カレントの cs-builder.yaml
+# スキーマの詳細は docs/config-spec.md を参照。
+
+# 設定フォーマットの版。正の値を付けるなら 1 のみ有効。0 または省略なら版チェックをスキップ可。
 version: 1
+
+# モノレポ等のルートディレクトリ。相対パスは cs-builder 実行時のカレントワーキングディレクトリ基準。
 project_root: "."
-scan_roots: ["testdata/monorepo/pfm"]
+
+# .sln を探す起点。いずれも project_root からの相対パス。複数ルートを列挙できる。
+scan_roots:
+  - "testdata/monorepo/pfm"
+
+# --- 以下は任意（必要なら # を外して有効化）---------------------------------
+#
+# 走査で「中に入らない」ディレクトリ名（パスの1セグメントだけ。大小文字は無視）。
+# キーごと省略時の既定: bin, obj, .git, node_modules
+# 空配列 [] を明示すると除外なし（bin/obj も再帰するので通常は非推奨）。
+scan_exclude_dir_names:
+  - "bin"
+  - "obj"
+  - ".git"
+  - "node_modules"
+  - "dist"
+
+# ビルドログまわり（現行実装ではビルド処理に未接続。将来用のキー）
+#
+log:
+  file_enabled: true        # true のときログファイル出力を想定
+  directory: "logs"         # 省略時は既定で logs
+  retention_days: 7         # 保持日数。1 未満は設定エラー
+
+# ビルド成果物のコピー先（現行実装では未接続。将来用）
+#
+artifacts:
+  copy_enabled: true
+  destination: "dist"  # copy_enabled: true のとき必須
