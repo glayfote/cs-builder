@@ -2,10 +2,12 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"builder/cs-builder/internal/artifact"
 	"builder/cs-builder/internal/builder"
 	"builder/cs-builder/internal/scanner"
 )
@@ -35,6 +37,7 @@ type Model struct {
 	buildOpts builder.BuildOption // ビルドコマンドのオプション (コマンド名、構成)
 
 	scanExcludes []string // スキャン時の追加除外パターン (.cs-builder.toml の scan.exclude)
+	sharedDllDir string   // ビルド成果物のコピー先ディレクトリ (空なら無効)
 
 	width  int // ターミナルの幅 (tea.WindowSizeMsg で更新)
 	height int // ターミナルの高さ (tea.WindowSizeMsg で更新)
@@ -55,14 +58,16 @@ type Model struct {
 //   - baseDir      : .sln ファイルを探索するルートディレクトリのパス
 //   - opts         : ビルドコマンドのオプション (コマンド名、構成、パス)
 //   - scanExcludes : スキャン時の追加除外パターン
+//   - sharedDllDir : ビルド成果物のコピー先ディレクトリ (空なら無効)
 //
 // 初期状態は stateScanning で、Init() により非同期スキャンが開始される。
-func NewModel(baseDir string, opts builder.BuildOption, scanExcludes []string) Model {
+func NewModel(baseDir string, opts builder.BuildOption, scanExcludes []string, sharedDllDir string) Model {
 	return Model{
 		state:        stateScanning,
 		baseDir:      baseDir,
 		buildOpts:    opts,
 		scanExcludes: scanExcludes,
+		sharedDllDir: sharedDllDir,
 		// Braille パターンによるスピナーアニメーション (10 フレーム)
 		spinnerFrames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	}
@@ -338,13 +343,21 @@ func (m Model) runBuildCmd() tea.Cmd {
 // 処理の流れ:
 //  1. ログ行を buildModel に追加する (画面に表示される)
 //  2. 現在のアイテムを完了させ、結果を記録する
-//  3. 全アイテム完了なら Done 画面に遷移
-//  4. 未完了なら次のアイテムのビルドを開始する
+//  3. ビルド成功時に成果物を共有 DLL ディレクトリにコピーする
+//  4. 全アイテム完了なら Done 画面に遷移
+//  5. 未完了なら次のアイテムのビルドを開始する
 func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 	for _, line := range msg.logs {
 		m.build.appendLog(line)
 	}
 	m.build.completeCurrent(msg.result)
+
+	if msg.result.Success && m.sharedDllDir != "" {
+		if err := artifact.CopyArtifact(msg.result.Solution, m.buildOpts.Configuration, m.sharedDllDir); err != nil {
+			m.build.appendLog(fmt.Sprintf("[warn] DLL コピー失敗: %v", err))
+		}
+	}
+
 	if m.build.done {
 		m.state = stateDone
 		return m, nil

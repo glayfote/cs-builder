@@ -12,6 +12,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -79,7 +80,13 @@ MSBuild (dotnet build / msbuild) でビルドします。
 			MSBuildPath:   cfg.Commands.MSBuild,
 		}
 
-		m := tui.NewModel(scanDir, opts, cfg.Scan.Exclude)
+		// resolve.shared_dll_dir を scanDir 基準の絶対パスに解決する
+		sharedDllDir := cfg.Resolve.SharedDllDir
+		if sharedDllDir != "" && !filepath.IsAbs(sharedDllDir) {
+			sharedDllDir = filepath.Join(scanDir, sharedDllDir)
+		}
+
+		m := tui.NewModel(scanDir, opts, cfg.Scan.Exclude, sharedDllDir)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		finalModel, err := p.Run()
 		if err != nil {

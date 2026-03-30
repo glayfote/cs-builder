@@ -9,3 +9,6 @@ msbuild = "C:/Program Files/Microsoft Visual Studio/18/Community/Msbuild/Current
 [defaults]
 build_cmd = "msbuild"
 config = "Debug"
+
+[resolve]
+shared_dll_dir = "5_dll"
