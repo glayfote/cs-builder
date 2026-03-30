@@ -1,0 +1,11 @@
+[scan]
+root = "testdata/monorepo/pfm"
+exclude = ["**/packages", "legacy/**", "5_dll/**"]
+
+[commands]
+dotnet = "C:/Program Files/dotnet/dotnet.exe"
+msbuild = "C:/Program Files/Microsoft Visual Studio/18/Community/Msbuild/Current/Bin/MSBuild.exe"
+
+[defaults]
+build_cmd = "msbuild"
+config = "Debug"

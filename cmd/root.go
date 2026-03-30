@@ -16,6 +16,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"builder/cs-builder/internal/builder"
+	"builder/cs-builder/internal/config"
 	"builder/cs-builder/internal/tui"
 )
 
@@ -47,9 +49,37 @@ MSBuild (dotnet build / msbuild) でビルドします。
 			flagPath = wd
 		}
 
-		// Bubble Tea のモデルを生成し、AltScreen モードで TUI を起動する。
-		// AltScreen を使うことで、終了時に元のターミナル表示が復元される。
-		m := tui.NewModel(flagPath, flagBuildCmd, flagConfig)
+		// .cs-builder.toml を探索して読み込む (見つからなければゼロ値)
+		cfg, err := config.Load(flagPath)
+		if err != nil {
+			return fmt.Errorf("設定ファイルの読み込みに失敗: %w", err)
+		}
+
+		// CLI フラグ > TOML > デフォルト の優先順位でマージする。
+		// cmd.Flags().Changed() で明示的に指定されたフラグを判定する。
+		scanDir := flagPath
+		if !cmd.Flags().Changed("path") && cfg.Scan.Root != "" {
+			scanDir = cfg.Scan.Root
+		}
+
+		buildCmd := flagBuildCmd
+		if !cmd.Flags().Changed("build-cmd") && cfg.Defaults.BuildCmd != "" {
+			buildCmd = cfg.Defaults.BuildCmd
+		}
+
+		buildConfig := flagConfig
+		if !cmd.Flags().Changed("config") && cfg.Defaults.Config != "" {
+			buildConfig = cfg.Defaults.Config
+		}
+
+		opts := builder.BuildOption{
+			Command:       buildCmd,
+			Configuration: buildConfig,
+			DotnetPath:    cfg.Commands.Dotnet,
+			MSBuildPath:   cfg.Commands.MSBuild,
+		}
+
+		m := tui.NewModel(scanDir, opts, cfg.Scan.Exclude)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		finalModel, err := p.Run()
 		if err != nil {

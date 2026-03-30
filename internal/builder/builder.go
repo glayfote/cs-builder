@@ -28,6 +28,8 @@ type BuildResult struct {
 type BuildOption struct {
 	Command       string // 使用するビルドコマンド ("dotnet" または "msbuild")
 	Configuration string // ビルド構成 ("Debug" または "Release")
+	DotnetPath    string // dotnet コマンドのフルパス (空なら PATH から探す)
+	MSBuildPath   string // msbuild コマンドのフルパス (空なら PATH から探す)
 }
 
 // Build は指定された .sln ファイルに対してビルドコマンドを実行する。
@@ -110,14 +112,22 @@ func buildCommand(slnPath string, opts BuildOption) (string, []string) {
 
 	switch strings.ToLower(opts.Command) {
 	case "msbuild":
-		return "msbuild", []string{
+		name := opts.MSBuildPath
+		if name == "" {
+			name = "msbuild"
+		}
+		return name, []string{
 			slnPath,
 			fmt.Sprintf("/p:Configuration=%s", cfg),
 			"/nologo",
 			"/v:minimal",
 		}
 	default:
-		return "dotnet", []string{
+		name := opts.DotnetPath
+		if name == "" {
+			name = "dotnet"
+		}
+		return name, []string{
 			"build",
 			slnPath,
 			"-c", cfg,

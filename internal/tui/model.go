@@ -34,6 +34,8 @@ type Model struct {
 	baseDir   string             // .sln を探索するベースディレクトリ
 	buildOpts builder.BuildOption // ビルドコマンドのオプション (コマンド名、構成)
 
+	scanExcludes []string // スキャン時の追加除外パターン (.cs-builder.toml の scan.exclude)
+
 	width  int // ターミナルの幅 (tea.WindowSizeMsg で更新)
 	height int // ターミナルの高さ (tea.WindowSizeMsg で更新)
 
@@ -47,22 +49,20 @@ type Model struct {
 }
 
 // NewModel は TUI モデルを初期化する。
-// cmd/root.go から呼ばれ、CLI フラグの値がそのまま渡される。
+// cmd/root.go から呼ばれ、CLI フラグと設定ファイルからマージされた値が渡される。
 //
 // 引数:
-//   - baseDir  : .sln ファイルを探索するルートディレクトリのパス
-//   - buildCmd : ビルドコマンド名 ("dotnet" または "msbuild")
-//   - config   : ビルド構成 ("Debug" または "Release")
+//   - baseDir      : .sln ファイルを探索するルートディレクトリのパス
+//   - opts         : ビルドコマンドのオプション (コマンド名、構成、パス)
+//   - scanExcludes : スキャン時の追加除外パターン
 //
 // 初期状態は stateScanning で、Init() により非同期スキャンが開始される。
-func NewModel(baseDir, buildCmd, config string) Model {
+func NewModel(baseDir string, opts builder.BuildOption, scanExcludes []string) Model {
 	return Model{
-		state:   stateScanning,
-		baseDir: baseDir,
-		buildOpts: builder.BuildOption{
-			Command:       buildCmd,
-			Configuration: config,
-		},
+		state:        stateScanning,
+		baseDir:      baseDir,
+		buildOpts:    opts,
+		scanExcludes: scanExcludes,
 		// Braille パターンによるスピナーアニメーション (10 フレーム)
 		spinnerFrames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	}
@@ -263,8 +263,9 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // バックグラウンドで scanner.Scan を呼び出し、結果を scanDoneMsg として送信する。
 func (m Model) scanCmd() tea.Cmd {
 	baseDir := m.baseDir
+	excludes := m.scanExcludes
 	return func() tea.Msg {
-		solutions, err := scanner.Scan(baseDir)
+		solutions, err := scanner.Scan(baseDir, excludes)
 		return scanDoneMsg{solutions: solutions, err: err}
 	}
 }
