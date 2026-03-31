@@ -8,7 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Pfm.Common.IfA">
-      <HintPath>..\..\..\5_dll\Pfm.Common.IfA.dll</HintPath>
+      <HintPath>..\..\..\5_dll\common\if\if_a\Pfm.Common.IfA.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

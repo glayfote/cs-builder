@@ -8,11 +8,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Pfm.Common.IfC">
-      <HintPath>..\..\..\5_dll\Pfm.Common.IfC.dll</HintPath>
+      <HintPath>..\..\..\5_dll\common\if\if_c\Pfm.Common.IfC.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Pfm.Common.IfD">
-      <HintPath>..\..\..\5_dll\Pfm.Common.IfD.dll</HintPath>
+      <HintPath>..\..\..\5_dll\common\if\if_d\Pfm.Common.IfD.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

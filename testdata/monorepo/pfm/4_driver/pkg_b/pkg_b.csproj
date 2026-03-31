@@ -9,19 +9,19 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Pfm.Common.IfA">
-      <HintPath>..\..\5_dll\Pfm.Common.IfA.dll</HintPath>
+      <HintPath>..\..\5_dll\common\if\if_a\Pfm.Common.IfA.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Pfm.Common.IfB">
-      <HintPath>..\..\5_dll\Pfm.Common.IfB.dll</HintPath>
+      <HintPath>..\..\5_dll\common\if\if_b\Pfm.Common.IfB.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Pfm.Common.Utils.Util2">
-      <HintPath>..\..\5_dll\Pfm.Common.Utils.Util2.dll</HintPath>
+      <HintPath>..\..\5_dll\common\utils\util2\Pfm.Common.Utils.Util2.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Pfm.Driver.PkgA">
-      <HintPath>..\..\5_dll\Pfm.Driver.PkgA.dll</HintPath>
+      <HintPath>..\..\5_dll\driver\pkg_a\Pfm.Driver.PkgA.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

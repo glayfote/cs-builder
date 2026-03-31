@@ -9,19 +9,19 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Pfm.Common.IfA">
-      <HintPath>..\..\..\5_dll\Pfm.Common.IfA.dll</HintPath>
+      <HintPath>..\..\..\5_dll\common\if\if_a\Pfm.Common.IfA.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Pfm.Common.IfC">
-      <HintPath>..\..\..\5_dll\Pfm.Common.IfC.dll</HintPath>
+      <HintPath>..\..\..\5_dll\common\if\if_c\Pfm.Common.IfC.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Pfm.Common.IfD">
-      <HintPath>..\..\..\5_dll\Pfm.Common.IfD.dll</HintPath>
+      <HintPath>..\..\..\5_dll\common\if\if_d\Pfm.Common.IfD.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Pfm.Common.Utils.Util3">
-      <HintPath>..\..\..\5_dll\Pfm.Common.Utils.Util3.dll</HintPath>
+      <HintPath>..\..\..\5_dll\common\utils\util3\Pfm.Common.Utils.Util3.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>
