@@ -5,11 +5,13 @@
 package artifact
 
 import (
+	"bufio"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -30,14 +32,24 @@ type projectInfo struct {
 	TargetFramework string // ターゲットフレームワーク (例: "net8.0"、空なら非 SDK スタイル)
 }
 
+// slnProjectRe は .sln ファイルの Project 行から相対パスを抽出する。
+// 形式: Project("{TypeGUID}") = "Name", "RelPath", "{GUID}"
+var slnProjectRe = regexp.MustCompile(
+	`^Project\("\{[^}]+\}"\)\s*=\s*"[^"]+",\s*"([^"]+)",\s*"\{[^}]+\}"`,
+)
+
 // CopyArtifact はビルド済みの成果物を共有 DLL ディレクトリにコピーする。
 //
-// slnPath から同ディレクトリの .csproj を探し、AssemblyName と TargetFramework を読み取って
-// ビルド出力パスを組み立て、DLL と PDB (存在する場合) を sharedDllDir にコピーする。
+// slnPath をパースして参照先の .csproj を特定し、AssemblyName と TargetFramework を読み取って
+// ビルド出力パスを組み立て、DLL / PDB / deps.json を sharedDllDir にコピーする。
+//
+// baseDir (scan root) からの相対パスでディレクトリ構造を保持する。
+// 例: baseDir="pfm", slnPath="pfm/3_common/if/if_a/if_a.sln"
+//   → コピー先: sharedDllDir/3_common/if/if_a/
 //
 // sharedDllDir が存在しない場合は自動作成する。
-// PDB が存在しない場合は DLL のみコピーしエラーにしない。
-func CopyArtifact(slnPath string, configuration string, sharedDllDir string) error {
+// PDB / deps.json が存在しない場合はスキップしエラーにしない。
+func CopyArtifact(slnPath, configuration, sharedDllDir, baseDir string) error {
 	info, err := findAndParseProject(slnPath)
 	if err != nil {
 		return err
@@ -45,42 +57,71 @@ func CopyArtifact(slnPath string, configuration string, sharedDllDir string) err
 
 	outputDir := buildOutputDir(info, configuration)
 
-	if err := os.MkdirAll(sharedDllDir, 0o755); err != nil {
-		return fmt.Errorf("共有 DLL ディレクトリの作成に失敗: %w", err)
+	relDir, err := filepath.Rel(baseDir, filepath.Dir(slnPath))
+	if err != nil {
+		return fmt.Errorf("相対パスの算出に失敗: %w", err)
+	}
+	dstDir := filepath.Join(sharedDllDir, relDir)
+
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return fmt.Errorf("コピー先ディレクトリの作成に失敗: %w", err)
 	}
 
 	dllName := info.AssemblyName + ".dll"
-	src := filepath.Join(outputDir, dllName)
-	dst := filepath.Join(sharedDllDir, dllName)
-	if err := copyFile(src, dst); err != nil {
+	if err := copyFile(filepath.Join(outputDir, dllName), filepath.Join(dstDir, dllName)); err != nil {
 		return fmt.Errorf("%s のコピーに失敗: %w", dllName, err)
 	}
 
-	pdbName := info.AssemblyName + ".pdb"
-	pdbSrc := filepath.Join(outputDir, pdbName)
-	pdbDst := filepath.Join(sharedDllDir, pdbName)
-	if _, err := os.Stat(pdbSrc); err == nil {
-		if err := copyFile(pdbSrc, pdbDst); err != nil {
-			return fmt.Errorf("%s のコピーに失敗: %w", pdbName, err)
+	for _, name := range []string{
+		info.AssemblyName + ".pdb",
+		info.AssemblyName + ".deps.json",
+	} {
+		src := filepath.Join(outputDir, name)
+		if _, err := os.Stat(src); err != nil {
+			continue
+		}
+		if err := copyFile(src, filepath.Join(dstDir, name)); err != nil {
+			return fmt.Errorf("%s のコピーに失敗: %w", name, err)
 		}
 	}
 
 	return nil
 }
 
-// findAndParseProject は .sln と同ディレクトリにある .csproj を探してパースする。
+// findAndParseProject は .sln をパースして参照先の .csproj を特定し、パースする。
 func findAndParseProject(slnPath string) (projectInfo, error) {
-	dir := filepath.Dir(slnPath)
-	matches, err := filepath.Glob(filepath.Join(dir, "*.csproj"))
+	csprojRel, err := extractCsprojPath(slnPath)
 	if err != nil {
-		return projectInfo{}, fmt.Errorf(".csproj の検索に失敗: %w", err)
-	}
-	if len(matches) == 0 {
-		return projectInfo{}, fmt.Errorf(".csproj が見つかりません: %s", dir)
+		return projectInfo{}, err
 	}
 
-	csprojPath := matches[0]
+	csprojPath := filepath.Join(filepath.Dir(slnPath), csprojRel)
 	return parseCsproj(csprojPath)
+}
+
+// extractCsprojPath は .sln ファイルから最初の .csproj 参照の相対パスを返す。
+func extractCsprojPath(slnPath string) (string, error) {
+	f, err := os.Open(slnPath)
+	if err != nil {
+		return "", fmt.Errorf(".sln の読み込みに失敗: %w", err)
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		m := slnProjectRe.FindStringSubmatch(sc.Text())
+		if m == nil {
+			continue
+		}
+		relPath := m[1]
+		if strings.EqualFold(filepath.Ext(relPath), ".csproj") {
+			return filepath.FromSlash(relPath), nil
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", fmt.Errorf(".sln の読み取りエラー: %w", err)
+	}
+	return "", fmt.Errorf(".sln に .csproj の参照が見つかりません: %s", slnPath)
 }
 
 // parseCsproj は .csproj ファイルから AssemblyName と TargetFramework を抽出する。

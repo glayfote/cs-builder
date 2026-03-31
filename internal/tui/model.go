@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,12 +34,13 @@ const (
 // Err フィールドはエクスポートされており、TUI 終了後に
 // cmd/root.go がエラーの有無を確認するために使用する。
 type Model struct {
-	state     state              // 現在の画面状態
-	baseDir   string             // .sln を探索するベースディレクトリ
-	buildOpts builder.BuildOption // ビルドコマンドのオプション (コマンド名、構成)
+	state       state              // 現在の画面状態
+	projectRoot string             // プロジェクトルート (RelPath / shared_dll_dir の基準)
+	scanRoots   []string           // スキャン対象サブディレクトリ (projectRoot からの相対、空なら全体)
+	buildOpts   builder.BuildOption // ビルドコマンドのオプション (コマンド名、構成)
 
-	scanExcludes []string // スキャン時の追加除外パターン (.cs-builder.toml の scan.exclude)
-	sharedDllDir string   // ビルド成果物のコピー先ディレクトリ (空なら無効)
+	scanExcludes []string           // スキャン時の追加除外パターン (.cs-builder.toml の scan.exclude)
+	dllDirMap    map[string]string  // scan root path → コピー先絶対パス (空マップならコピー無効)
 
 	width  int // ターミナルの幅 (tea.WindowSizeMsg で更新)
 	height int // ターミナルの高さ (tea.WindowSizeMsg で更新)
@@ -55,19 +58,21 @@ type Model struct {
 // cmd/root.go から呼ばれ、CLI フラグと設定ファイルからマージされた値が渡される。
 //
 // 引数:
-//   - baseDir      : .sln ファイルを探索するルートディレクトリのパス
+//   - projectRoot  : プロジェクトルートディレクトリのパス (RelPath の基準)
+//   - scanRoots    : スキャン対象サブディレクトリ (projectRoot からの相対、空なら全体)
 //   - opts         : ビルドコマンドのオプション (コマンド名、構成、パス)
 //   - scanExcludes : スキャン時の追加除外パターン
-//   - sharedDllDir : ビルド成果物のコピー先ディレクトリ (空なら無効)
+//   - dllDirMap    : scan root path → コピー先絶対パス (空マップならコピー無効)
 //
 // 初期状態は stateScanning で、Init() により非同期スキャンが開始される。
-func NewModel(baseDir string, opts builder.BuildOption, scanExcludes []string, sharedDllDir string) Model {
+func NewModel(projectRoot string, scanRoots []string, opts builder.BuildOption, scanExcludes []string, dllDirMap map[string]string) Model {
 	return Model{
 		state:        stateScanning,
-		baseDir:      baseDir,
+		projectRoot:  projectRoot,
+		scanRoots:    scanRoots,
 		buildOpts:    opts,
 		scanExcludes: scanExcludes,
-		sharedDllDir: sharedDllDir,
+		dllDirMap:    dllDirMap,
 		// Braille パターンによるスピナーアニメーション (10 フレーム)
 		spinnerFrames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	}
@@ -265,12 +270,13 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // --- 非同期コマンド ---
 
 // scanCmd は .sln ファイルの非同期スキャンを実行する Bubble Tea コマンドを返す。
-// バックグラウンドで scanner.Scan を呼び出し、結果を scanDoneMsg として送信する。
+// バックグラウンドで scanner.ScanMultiple を呼び出し、結果を scanDoneMsg として送信する。
 func (m Model) scanCmd() tea.Cmd {
-	baseDir := m.baseDir
+	projectRoot := m.projectRoot
+	scanRoots := m.scanRoots
 	excludes := m.scanExcludes
 	return func() tea.Msg {
-		solutions, err := scanner.Scan(baseDir, excludes)
+		solutions, err := scanner.ScanMultiple(projectRoot, scanRoots, excludes)
 		return scanDoneMsg{solutions: solutions, err: err}
 	}
 }
@@ -352,9 +358,11 @@ func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 	}
 	m.build.completeCurrent(msg.result)
 
-	if msg.result.Success && m.sharedDllDir != "" {
-		if err := artifact.CopyArtifact(msg.result.Solution, m.buildOpts.Configuration, m.sharedDllDir); err != nil {
-			m.build.appendLog(fmt.Sprintf("[warn] DLL コピー失敗: %v", err))
+	if msg.result.Success && len(m.dllDirMap) > 0 {
+		if dllDir, scanRootAbs, ok := m.resolveDllDir(msg.result.Solution); ok {
+			if err := artifact.CopyArtifact(msg.result.Solution, m.buildOpts.Configuration, dllDir, scanRootAbs); err != nil {
+				m.build.appendLog(fmt.Sprintf("[warn] DLL コピー失敗: %v", err))
+			}
 		}
 	}
 
@@ -364,4 +372,23 @@ func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 	}
 	m.build.startNext()
 	return m, m.runBuildCmd()
+}
+
+// resolveDllDir は .sln の絶対パスから所属する scan root を判定し、
+// コピー先ディレクトリと scan root の絶対パスを返す。該当なしの場合は ok=false。
+// scanRootAbs は CopyArtifact の baseDir として使用され、
+// scan root 以下の相対パスのみがコピー先に反映される。
+func (m Model) resolveDllDir(slnAbsPath string) (dllDir string, scanRootAbs string, ok bool) {
+	rel, err := filepath.Rel(m.projectRoot, slnAbsPath)
+	if err != nil {
+		return "", "", false
+	}
+	relSlash := filepath.ToSlash(rel)
+	for root, dir := range m.dllDirMap {
+		prefix := filepath.ToSlash(root) + "/"
+		if strings.HasPrefix(relSlash, prefix) {
+			return dir, filepath.Join(m.projectRoot, root), true
+		}
+	}
+	return "", "", false
 }

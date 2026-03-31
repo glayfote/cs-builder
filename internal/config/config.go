@@ -19,18 +19,24 @@ type Config struct {
 	Scan     ScanConfig     `toml:"scan"`
 	Commands CommandsConfig `toml:"commands"`
 	Defaults DefaultsConfig `toml:"defaults"`
-	Resolve  ResolveConfig  `toml:"resolve"`
 
 	// Dir は設定ファイルが見つかったディレクトリの絶対パス。
-	// scan.root の相対パス解決に使用する。
+	// scan.project_root の相対パス解決に使用する。
 	// 設定ファイルが見つからなかった場合は空文字列。
 	Dir string `toml:"-"`
 }
 
 // ScanConfig はスキャン動作に関する設定を保持する。
 type ScanConfig struct {
-	Root    string   `toml:"root"`    // 探索ルート (設定ファイルからの相対パス)
-	Exclude []string `toml:"exclude"` // 追加の除外パターン
+	ProjectRoot string     `toml:"project_root"` // プロジェクトルート (設定ファイルからの相対パス)
+	Roots       []ScanRoot `toml:"roots"`         // スキャン対象サブディレクトリとコピー先の設定
+	Exclude     []string   `toml:"exclude"`       // 追加の除外パターン
+}
+
+// ScanRoot はスキャン対象のサブディレクトリとビルド成果物のコピー先を保持する。
+type ScanRoot struct {
+	Path         string `toml:"path"`           // スキャン対象ディレクトリ (project_root からの相対パス)
+	SharedDllDir string `toml:"shared_dll_dir"` // ビルド成果物のコピー先 (project_root からの相対パス、空ならコピーしない)
 }
 
 // CommandsConfig はビルドコマンドの実行パスを保持する。
@@ -44,11 +50,6 @@ type CommandsConfig struct {
 type DefaultsConfig struct {
 	BuildCmd string `toml:"build_cmd"`
 	Config   string `toml:"config"`
-}
-
-// ResolveConfig は依存解決・成果物管理に関する設定を保持する。
-type ResolveConfig struct {
-	SharedDllDir string `toml:"shared_dll_dir"` // ビルド成果物の集約先ディレクトリ (例: "5_dll")
 }
 
 // Load は startDir から親方向に .cs-builder.toml を探索して読み込む。
@@ -71,13 +72,13 @@ func Load(startDir string) (Config, error) {
 	}
 	cfg.Dir = filepath.Dir(path)
 
-	// scan.root を設定ファイルのディレクトリからの絶対パスに解決する
-	if cfg.Scan.Root != "" && !filepath.IsAbs(cfg.Scan.Root) {
-		cfg.Scan.Root = filepath.Join(cfg.Dir, cfg.Scan.Root)
+	// scan.project_root を設定ファイルのディレクトリからの絶対パスに解決する
+	if cfg.Scan.ProjectRoot != "" && !filepath.IsAbs(cfg.Scan.ProjectRoot) {
+		cfg.Scan.ProjectRoot = filepath.Join(cfg.Dir, cfg.Scan.ProjectRoot)
 	}
 
-	// resolve.shared_dll_dir は scan.root からの相対パスとして後で解決するため、
-	// ここでは生の値をそのまま保持する (cmd/root.go で scanDir 基準に解決)
+	// scan.roots[].path / scan.roots[].shared_dll_dir は project_root からの
+	// 相対パスとして後で解決するため、ここでは生の値をそのまま保持する
 
 	return cfg, nil
 }

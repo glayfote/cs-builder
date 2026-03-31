@@ -1,6 +1,14 @@
 [scan]
-root = "testdata/monorepo/pfm"
-exclude = ["**/packages", "legacy/**", "5_dll/**"]
+project_root = "testdata/monorepo/pfm"
+exclude = ["**/packages", "legacy/**"]
+
+[[scan.roots]]
+path = "3_common"
+shared_dll_dir = "5_dll/common"
+
+[[scan.roots]]
+path = "4_driver"
+shared_dll_dir = "5_dll/driver"
 
 [commands]
 dotnet = "C:/Program Files/dotnet/dotnet.exe"
@@ -9,6 +17,3 @@ msbuild = "C:/Program Files/Microsoft Visual Studio/18/Community/Msbuild/Current
 [defaults]
 build_cmd = "msbuild"
 config = "Debug"
-
-[resolve]
-shared_dll_dir = "5_dll"

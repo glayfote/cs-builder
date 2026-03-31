@@ -6,6 +6,7 @@
 package scanner
 
 import (
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,36 @@ import (
 type Solution struct {
 	Name    string // ソリューション名 (拡張子を除いたファイル名, 例: "if_a")
 	AbsPath string // ファイルシステム上の絶対パス
-	RelPath string // baseDir を起点とした相対パス (TUI での表示用)
+	RelPath string // projectRoot を起点とした相対パス (TUI での表示用)
+}
+
+// ScanMultiple は projectRoot 配下の複数の scanRoots を走査し、結果を結合して返す。
+// scanRoots は projectRoot からの相対パス (例: ["3_common", "4_driver"])。
+// scanRoots が空の場合は projectRoot 全体をスキャンする (後方互換)。
+// 各 Solution の RelPath は projectRoot を起点とした相対パスになる。
+func ScanMultiple(projectRoot string, scanRoots []string, extraExcludes []string) ([]Solution, error) {
+	absProject, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(scanRoots) == 0 {
+		return Scan(absProject, extraExcludes)
+	}
+
+	var all []Solution
+	for _, root := range scanRoots {
+		dir := filepath.Join(absProject, root)
+		solutions, err := Scan(dir, extraExcludes)
+		if err != nil {
+			return nil, fmt.Errorf("scan %s: %w", root, err)
+		}
+		for i := range solutions {
+			solutions[i].RelPath = filepath.Join(root, solutions[i].RelPath)
+		}
+		all = append(all, solutions...)
+	}
+	return all, nil
 }
 
 // defaultExcludes はハードコードされた除外ディレクトリ名。

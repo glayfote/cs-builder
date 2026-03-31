@@ -58,9 +58,23 @@ MSBuild (dotnet build / msbuild) でビルドします。
 
 		// CLI フラグ > TOML > デフォルト の優先順位でマージする。
 		// cmd.Flags().Changed() で明示的に指定されたフラグを判定する。
-		scanDir := flagPath
-		if !cmd.Flags().Changed("path") && cfg.Scan.Root != "" {
-			scanDir = cfg.Scan.Root
+		projectRoot := flagPath
+		if !cmd.Flags().Changed("path") && cfg.Scan.ProjectRoot != "" {
+			projectRoot = cfg.Scan.ProjectRoot
+		}
+
+		// scan.roots から scanner 用のパススライスと dllDirMap を組み立てる
+		var scanRootPaths []string
+		dllDirMap := make(map[string]string)
+		for _, r := range cfg.Scan.Roots {
+			scanRootPaths = append(scanRootPaths, r.Path)
+			if r.SharedDllDir != "" {
+				dir := r.SharedDllDir
+				if !filepath.IsAbs(dir) {
+					dir = filepath.Join(projectRoot, dir)
+				}
+				dllDirMap[r.Path] = dir
+			}
 		}
 
 		buildCmd := flagBuildCmd
@@ -80,13 +94,7 @@ MSBuild (dotnet build / msbuild) でビルドします。
 			MSBuildPath:   cfg.Commands.MSBuild,
 		}
 
-		// resolve.shared_dll_dir を scanDir 基準の絶対パスに解決する
-		sharedDllDir := cfg.Resolve.SharedDllDir
-		if sharedDllDir != "" && !filepath.IsAbs(sharedDllDir) {
-			sharedDllDir = filepath.Join(scanDir, sharedDllDir)
-		}
-
-		m := tui.NewModel(scanDir, opts, cfg.Scan.Exclude, sharedDllDir)
+		m := tui.NewModel(projectRoot, scanRootPaths, opts, cfg.Scan.Exclude, dllDirMap)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		finalModel, err := p.Run()
 		if err != nil {
