@@ -27,6 +27,7 @@ var (
 	flagPath     string // --path: スキャン対象ディレクトリ
 	flagConfig   string // --config: ビルド構成 (Debug/Release)
 	flagBuildCmd string // --build-cmd: ビルドコマンド (dotnet/msbuild)
+	flagParallel int    // --parallel: 同一レベル内の最大並列ビルド数
 )
 
 // rootCmd はアプリケーションのルートコマンド。
@@ -94,7 +95,12 @@ MSBuild (dotnet build / msbuild) でビルドします。
 			MSBuildPath:   cfg.Commands.MSBuild,
 		}
 
-		m := tui.NewModel(projectRoot, scanRootPaths, opts, cfg.Scan.Exclude, dllDirMap)
+		maxParallel := flagParallel
+		if !cmd.Flags().Changed("parallel") && cfg.Defaults.MaxParallel != 0 {
+			maxParallel = cfg.Defaults.MaxParallel
+		}
+
+		m := tui.NewModel(projectRoot, scanRootPaths, opts, cfg.Scan.Exclude, dllDirMap, maxParallel)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		finalModel, err := p.Run()
 		if err != nil {
@@ -115,6 +121,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&flagPath, "path", "p", "", "スキャン対象ディレクトリ (デフォルト: カレントディレクトリ)")
 	rootCmd.Flags().StringVarP(&flagConfig, "config", "c", "Debug", "ビルド構成 (Debug / Release)")
 	rootCmd.Flags().StringVar(&flagBuildCmd, "build-cmd", "dotnet", "ビルドコマンド (dotnet / msbuild)")
+	rootCmd.Flags().IntVar(&flagParallel, "parallel", 0, "同一レベル内の最大並列ビルド数 (0=無制限)")
 }
 
 // Execute は Cobra のルートコマンドを実行する。

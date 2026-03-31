@@ -39,6 +39,7 @@ type Model struct {
 	projectRoot string             // プロジェクトルート (RelPath / shared_dll_dir の基準)
 	scanRoots   []string           // スキャン対象サブディレクトリ (projectRoot からの相対、空なら全体)
 	buildOpts   builder.BuildOption // ビルドコマンドのオプション (コマンド名、構成)
+	maxParallel int                // 同一レベル内の最大並列ビルド数 (0=無制限)
 
 	scanExcludes []string           // スキャン時の追加除外パターン (.cs-builder.toml の scan.exclude)
 	dllDirMap    map[string]string  // scan root path → コピー先絶対パス (空マップならコピー無効)
@@ -67,17 +68,18 @@ type Model struct {
 //   - opts         : ビルドコマンドのオプション (コマンド名、構成、パス)
 //   - scanExcludes : スキャン時の追加除外パターン
 //   - dllDirMap    : scan root path → コピー先絶対パス (空マップならコピー無効)
+//   - maxParallel  : 同一レベル内の最大並列ビルド数 (0=無制限)
 //
 // 初期状態は stateScanning で、Init() により非同期スキャンが開始される。
-func NewModel(projectRoot string, scanRoots []string, opts builder.BuildOption, scanExcludes []string, dllDirMap map[string]string) Model {
+func NewModel(projectRoot string, scanRoots []string, opts builder.BuildOption, scanExcludes []string, dllDirMap map[string]string, maxParallel int) Model {
 	return Model{
 		state:        stateScanning,
 		projectRoot:  projectRoot,
 		scanRoots:    scanRoots,
 		buildOpts:    opts,
+		maxParallel:  maxParallel,
 		scanExcludes: scanExcludes,
 		dllDirMap:    dllDirMap,
-		// Braille パターンによるスピナーアニメーション (10 フレーム)
 		spinnerFrames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	}
 }
@@ -98,20 +100,15 @@ type scanDoneMsg struct {
 type tickMsg struct{}
 
 // buildBatchMsg はビルド完了時にログ行と結果をまとめて返すメッセージ。
-//
-// Bubble Tea の Cmd は単一の Msg しか返せないため、
-// ビルド中の個別ログ行をリアルタイムに送信することはできない。
-// 代わりに、ビルド完了時に全ログ行をまとめて logs に格納し、
-// 結果と一緒に 1 つのメッセージとして返す方式を採用している。
+// 並列実行時は複数の buildBatchMsg が独立して到着するため、
+// itemIdx でどのアイテムの結果かを識別する。
 type buildBatchMsg struct {
-	logs   []string            // ビルド中に出力された全ログ行
-	result builder.BuildResult // ビルドの最終結果
+	itemIdx int                // 完了したアイテムの items 内インデックス
+	logs    []string           // ビルド中に出力された全ログ行
+	result  builder.BuildResult // ビルドの最終結果
 }
 
 // tickCmd は 80ms 後に tickMsg を送信する Bubble Tea コマンドを返す。
-// スピナーアニメーションのフレーム更新に使用される。
-// Update で tickMsg を受信するたびに再度 tickCmd() を返すことで、
-// アプリケーション終了までアニメーションが継続する。
 func tickCmd() tea.Cmd {
 	return tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg {
 		return tickMsg{}
@@ -128,13 +125,6 @@ func (m Model) Init() tea.Cmd {
 
 // Update は Bubble Tea がメッセージを受信するたびに呼ばれる。
 // メッセージの型に応じて適切なハンドラに処理を委譲する。
-//
-// 処理するメッセージ:
-//   - tea.WindowSizeMsg : ターミナルサイズ変更 → width/height を更新
-//   - tea.KeyMsg        : キー入力 → handleKey で画面状態別に処理
-//   - scanDoneMsg       : スキャン完了 → handleScanDone で選択画面に遷移
-//   - buildBatchMsg     : ビルド完了 → handleBuildBatch でログ更新と次のビルド開始
-//   - tickMsg           : スピナー更新 → フレームインデックスを進める
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -156,13 +146,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View は現在の画面状態に応じた表示文字列を返す。
-// Bubble Tea が毎フレーム呼び出し、ターミナルに描画する。
-//
-// 画面状態と描画内容:
-//   - stateScanning  : タイトル + スピナー + "探索中..." メッセージ
-//   - stateSelecting : selectModel.view() による選択リスト (ターミナル高さ連動)
-//   - stateBuilding  : buildModel.view() による進捗表示 (スピナー付き)
-//   - stateDone      : buildModel.view() によるサマリ表示 (スピナーなし)
 func (m Model) View() string {
 	switch m.state {
 	case stateScanning:
@@ -185,7 +168,6 @@ func (m Model) View() string {
 // handleKey はキー入力メッセージを画面状態に応じて振り分ける。
 // Ctrl+C はどの画面でもアプリケーションを即座に終了する。
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Ctrl+C は全画面共通で即座に終了
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
@@ -202,26 +184,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleSelectKey はソリューション選択画面でのキー入力を処理する。
-// フィルタモード中は文字入力を優先し、それ以外はリスト操作を行う。
-//
-// 通常モードのキーバインド:
-//   - up/k   : カーソルを 1 つ上に移動
-//   - down/j : カーソルを 1 つ下に移動
-//   - space  : カーソル位置のソリューションの選択をトグル
-//   - a      : 全ソリューションの選択をトグル (全選択 ↔ 全解除)
-//   - /      : フィルタモード開始
-//   - enter  : 選択中のソリューションのビルドを開始 (未選択時は無視)
-//   - q      : アプリケーションを終了
-//
-// フィルタモードのキーバインド:
-//   - esc       : フィルタ解除 (全件表示に戻る)
-//   - backspace : フィルタ文字列の末尾を削除
-//   - その他文字 : フィルタ文字列に追加
-//   - up/down, space, enter, a : 通常モードと同じ動作
 func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// フィルタモード中のテキスト入力処理
 	if m.sel.filtering {
 		switch key {
 		case "esc":
@@ -231,10 +196,7 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sel = m.sel.deleteFilterChar()
 			return m, nil
 		case "up", "k", "down", "j", " ", "enter", "a":
-			// リスト操作キーはフィルタモード中でもフォールスルーして通常処理
 		default:
-			// 印字可能文字をフィルタに追加する。
-			// tea.KeyMsg の Type が tea.KeyRunes の場合のみ文字として扱う。
 			if msg.Type == tea.KeyRunes {
 				for _, r := range msg.Runes {
 					m.sel = m.sel.appendFilterChar(r)
@@ -260,14 +222,13 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		selected := m.sel.selectedSolutions()
-		buildOrder := sortByDependency(m.graph, selected)
-		m.build = newBuildModel(buildOrder)
+		nodes := sortByDependency(m.graph, selected)
+		m.build = newBuildModel(nodes, m.maxParallel)
 		for _, w := range m.graphWarnings {
 			m.build.appendLog(fmt.Sprintf("[warn] 依存解析: %s", w))
 		}
 		m.state = stateBuilding
-		m.build.startNext()
-		return m, m.runBuildCmd()
+		return m, m.startLevelBatch()
 	case "q":
 		if m.sel.filtering {
 			return m, nil
@@ -279,10 +240,7 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // --- 非同期コマンド ---
 
-// scanCmd は .sln ファイルの非同期スキャンと依存グラフの構築を実行する
-// Bubble Tea コマンドを返す。
-// バックグラウンドで scanner.ScanMultiple を呼び出した後、
-// depgraph.Build で .csproj の HintPath を解析してグラフを構築する。
+// scanCmd は .sln ファイルの非同期スキャンと依存グラフの構築を実行する。
 func (m Model) scanCmd() tea.Cmd {
 	projectRoot := m.projectRoot
 	scanRoots := m.scanRoots
@@ -302,11 +260,6 @@ func (m Model) scanCmd() tea.Cmd {
 }
 
 // handleScanDone はスキャン完了メッセージを処理する。
-//
-// 3 つのケースを処理する:
-//  1. スキャンエラー: Err にセットして TUI を終了
-//  2. ソリューションが 0 件: Done 画面に直行 (空のサマリ表示)
-//  3. 1 件以上: selectModel を初期化して選択画面に遷移、依存グラフを保持
 func (m Model) handleScanDone(msg scanDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.Err = msg.err
@@ -314,7 +267,7 @@ func (m Model) handleScanDone(msg scanDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	if len(msg.solutions) == 0 {
 		m.state = stateDone
-		m.build = newBuildModel(nil)
+		m.build = newBuildModel(nil, m.maxParallel)
 		return m, nil
 	}
 	m.graph = msg.graph
@@ -324,61 +277,62 @@ func (m Model) handleScanDone(msg scanDoneMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// runBuildCmd は現在のビルドキューの先頭アイテムに対してビルドを実行する
-// Bubble Tea コマンドを返す。
-//
-// 実行の流れ:
-//  1. builder.Build をゴルーチンで非同期実行する
-//  2. ビルド中のログ行は logCh チャネル経由で収集する
-//  3. logCh が close されたら (ビルド出力終了)、doneCh から結果を受け取る
-//  4. 全ログ行と結果を buildBatchMsg にまとめて返す
-//
-// 注意: Bubble Tea の Cmd は 1 つの Msg しか返せないため、
-// ビルド中のリアルタイムログ更新はできず、完了時に一括で反映される。
-func (m Model) runBuildCmd() tea.Cmd {
-	idx := m.build.currentIdx
-	if idx >= len(m.build.items) {
+// startLevelBatch は現在レベルの未開始アイテムを maxParallel まで起動する。
+// 起動したビルド Cmd を tea.Batch でまとめて返す。
+func (m *Model) startLevelBatch() tea.Cmd {
+	var cmds []tea.Cmd
+	for _, idx := range m.build.pendingInCurrentLevel() {
+		if m.build.maxParallel > 0 && m.build.activeCount >= m.build.maxParallel {
+			break
+		}
+		m.build.items[idx].status = statusBuilding
+		m.build.activeCount++
+		cmds = append(cmds, m.runBuildForItem(idx))
+	}
+	if len(cmds) == 0 {
 		return nil
 	}
+	return tea.Batch(cmds...)
+}
+
+// runBuildForItem は指定インデックスのアイテムに対してビルドを実行する
+// Bubble Tea コマンドを返す。
+func (m Model) runBuildForItem(idx int) tea.Cmd {
 	item := m.build.items[idx]
 	opts := m.buildOpts
 	return func() tea.Msg {
 		logCh := make(chan string, 64)
 		doneCh := make(chan builder.BuildResult, 1)
 
-		// ビルドをバックグラウンドのゴルーチンで実行する。
-		// logCh にログ行が逐次送信され、完了後に close される。
 		go func() {
 			result := builder.Build(context.Background(), item.solution.AbsPath, opts, logCh)
 			close(logCh)
 			doneCh <- result
 		}()
 
-		// logCh から全ログ行を消費して蓄積する。
-		// チャネルが close されるまで (= ビルドの全出力が終わるまで) ブロックする。
 		var logLines []string
 		for line := range logCh {
 			logLines = append(logLines, line)
 		}
 
 		result := <-doneCh
-		return buildBatchMsg{logs: logLines, result: result}
+		return buildBatchMsg{itemIdx: idx, logs: logLines, result: result}
 	}
 }
 
 // handleBuildBatch はビルド完了メッセージを処理する。
 //
 // 処理の流れ:
-//  1. ログ行を buildModel に追加する (画面に表示される)
-//  2. 現在のアイテムを完了させ、結果を記録する
+//  1. ログ行を buildModel に追加する
+//  2. 完了したアイテムの結果を記録する (completeItem)
 //  3. ビルド成功時に成果物を共有 DLL ディレクトリにコピーする
 //  4. 全アイテム完了なら Done 画面に遷移
-//  5. 未完了なら次のアイテムのビルドを開始する
+//  5. 未完了なら startLevelBatch() で同レベルの残りまたは次レベルを起動
 func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 	for _, line := range msg.logs {
 		m.build.appendLog(line)
 	}
-	m.build.completeCurrent(msg.result)
+	m.build.completeItem(msg.itemIdx, msg.result)
 
 	if msg.result.Success && len(m.dllDirMap) > 0 {
 		if dllDir, scanRootAbs, ok := m.resolveDllDir(msg.result.Solution); ok {
@@ -392,31 +346,28 @@ func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 		m.state = stateDone
 		return m, nil
 	}
-	m.build.startNext()
-	return m, m.runBuildCmd()
+	return m, m.startLevelBatch()
 }
 
 // sortByDependency は依存グラフに基づいてビルド順をソートする。
-// グラフが nil またはソートに失敗した場合は元の順序をそのまま返す (フォールバック)。
-func sortByDependency(g *depgraph.Graph, selected []scanner.Solution) []scanner.Solution {
-	if g == nil {
-		return selected
+// Level 情報付きの []*depgraph.Node を返す。
+// グラフが nil またはソートに失敗した場合は全ノード Level=0 でフォールバック。
+func sortByDependency(g *depgraph.Graph, selected []scanner.Solution) []*depgraph.Node {
+	if g != nil {
+		sorted, err := g.Sort(selected)
+		if err == nil {
+			return sorted
+		}
 	}
-	sorted, err := g.Sort(selected)
-	if err != nil {
-		return selected
+	nodes := make([]*depgraph.Node, len(selected))
+	for i, s := range selected {
+		nodes[i] = &depgraph.Node{Solution: s, Level: 0}
 	}
-	result := make([]scanner.Solution, len(sorted))
-	for i, n := range sorted {
-		result[i] = n.Solution
-	}
-	return result
+	return nodes
 }
 
 // resolveDllDir は .sln の絶対パスから所属する scan root を判定し、
 // コピー先ディレクトリと scan root の絶対パスを返す。該当なしの場合は ok=false。
-// scanRootAbs は CopyArtifact の baseDir として使用され、
-// scan root 以下の相対パスのみがコピー先に反映される。
 func (m Model) resolveDllDir(slnAbsPath string) (dllDir string, scanRootAbs string, ok bool) {
 	rel, err := filepath.Rel(m.projectRoot, slnAbsPath)
 	if err != nil {

@@ -48,8 +48,9 @@ type CommandsConfig struct {
 
 // DefaultsConfig は CLI フラグのデフォルト値を上書きする設定を保持する。
 type DefaultsConfig struct {
-	BuildCmd string `toml:"build_cmd"`
-	Config   string `toml:"config"`
+	BuildCmd    string `toml:"build_cmd"`
+	Config      string `toml:"config"`
+	MaxParallel int    `toml:"max_parallel"` // 同一レベル内の最大並列ビルド数 (0=無制限, 1=逐次)
 }
 
 // Load は startDir から親方向に .cs-builder.toml を探索して読み込む。

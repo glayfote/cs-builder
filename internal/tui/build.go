@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"builder/cs-builder/internal/builder"
+	"builder/cs-builder/internal/depgraph"
 	"builder/cs-builder/internal/scanner"
 )
 
@@ -30,15 +31,19 @@ type buildItem struct {
 }
 
 // buildModel はビルド実行画面の状態を保持する。
-// ソリューションを先頭から順次ビルドし、各ソリューションの進捗・結果を管理する。
+// ソリューションを依存レベル単位でグループ化し、同一レベル内で並列ビルドを行う。
+// レベル間は直列で処理し、依存先が先にビルドされることを保証する。
 type buildModel struct {
-	items      []buildItem // ビルドキュー (選択されたソリューション群)
-	currentIdx int         // 現在ビルド中 (または次にビルドする) アイテムのインデックス
-	logLines   []string    // ビルドログ (全行を保持し、表示は末尾から動的行数分)
-	done      bool          // 全ソリューションのビルドが完了したか
-	offset    int           // アイテム一覧のスクロールオフセット
-	startTime time.Time     // ビルド開始時刻 (経過時間表示用)
-	elapsed   time.Duration // 確定済みの経過時間 (完了後は固定値)
+	items        []buildItem    // ビルドキュー (依存順にソート済み)
+	levels       [][]int        // levels[i] = レベル i に属するアイテムの items 内インデックス
+	currentLevel int            // 現在処理中のレベル
+	maxParallel  int            // 最大並列ビルド数 (0 = 無制限)
+	activeCount  int            // 現在実行中のビルド数
+	logLines     []string       // ビルドログ (全行を保持し、表示は末尾から動的行数分)
+	done         bool           // 全ソリューションのビルドが完了したか
+	offset       int            // アイテム一覧のスクロールオフセット
+	startTime    time.Time      // ビルド開始時刻 (経過時間表示用)
+	elapsed      time.Duration  // 確定済みの経過時間 (完了後は固定値)
 }
 
 // buildFixedLines はアイテム一覧・ログ以外の固定行数。
@@ -47,47 +52,103 @@ type buildModel struct {
 // 完了時はサマリ (2行) + ヘルプ (1行) が追加 = +3
 const buildFixedLines = 8
 
-// newBuildModel は選択されたソリューション群からビルドキューを初期化する。
-// 全アイテムの初期状態は statusPending。
-func newBuildModel(solutions []scanner.Solution) buildModel {
-	items := make([]buildItem, len(solutions))
-	for i, s := range solutions {
-		items[i] = buildItem{solution: s, status: statusPending}
+// newBuildModel は依存順にソートされたノード群からビルドキューを初期化する。
+// ノードの Level フィールドに基づいてレベルグループを構築する。
+func newBuildModel(nodes []*depgraph.Node, maxParallel int) buildModel {
+	items := make([]buildItem, len(nodes))
+	levelMax := 0
+	for i, n := range nodes {
+		items[i] = buildItem{solution: n.Solution, status: statusPending}
+		if n.Level > levelMax {
+			levelMax = n.Level
+		}
 	}
+
+	levels := make([][]int, levelMax+1)
+	for i, n := range nodes {
+		levels[n.Level] = append(levels[n.Level], i)
+	}
+
 	return buildModel{
-		items:     items,
-		startTime: time.Now(),
+		items:       items,
+		levels:      levels,
+		maxParallel: maxParallel,
+		startTime:   time.Now(),
 	}
 }
 
-// startNext は currentIdx が指すアイテムのステータスを statusBuilding に遷移させる。
-// ビルド開始前に呼び出して、画面表示にスピナーを反映させる。
-// currentIdx がキューの範囲外の場合は何もしない。
-func (m *buildModel) startNext() {
-	if m.currentIdx < len(m.items) {
-		m.items[m.currentIdx].status = statusBuilding
+// pendingInCurrentLevel は現在レベルの未開始アイテムのインデックスを返す。
+func (m *buildModel) pendingInCurrentLevel() []int {
+	if m.currentLevel >= len(m.levels) {
+		return nil
 	}
+	var pending []int
+	for _, idx := range m.levels[m.currentLevel] {
+		if m.items[idx].status == statusPending {
+			pending = append(pending, idx)
+		}
+	}
+	return pending
 }
 
-// completeCurrent は現在ビルド中のアイテムにビルド結果を設定し、
+// completeItem は指定インデックスのアイテムにビルド結果を設定し、
 // ステータスを Success/Failure に遷移させる。
-// その後 currentIdx を進め、全アイテム完了なら done を true にする。
-func (m *buildModel) completeCurrent(result builder.BuildResult) {
-	if m.currentIdx >= len(m.items) {
+// レベル内の全アイテムが完了した場合は次のレベルに進む。
+// 全レベル完了なら done を true にする。
+func (m *buildModel) completeItem(idx int, result builder.BuildResult) {
+	if idx < 0 || idx >= len(m.items) {
 		return
 	}
-	m.items[m.currentIdx].result = &result
+	m.items[idx].result = &result
 	if result.Success {
-		m.items[m.currentIdx].status = statusSuccess
+		m.items[idx].status = statusSuccess
 	} else {
-		m.items[m.currentIdx].status = statusFailure
+		m.items[idx].status = statusFailure
 	}
+	m.activeCount--
 
-	m.currentIdx++
-	if m.currentIdx >= len(m.items) {
-		m.done = true
-		m.elapsed = time.Since(m.startTime)
+	if m.isLevelDone(m.currentLevel) {
+		m.currentLevel++
+		if m.currentLevel >= len(m.levels) {
+			m.done = true
+			m.elapsed = time.Since(m.startTime)
+		}
 	}
+}
+
+// isLevelDone は指定レベルの全アイテムがビルド済み (成功 or 失敗) かを返す。
+func (m *buildModel) isLevelDone(level int) bool {
+	if level >= len(m.levels) {
+		return true
+	}
+	for _, idx := range m.levels[level] {
+		s := m.items[idx].status
+		if s == statusPending || s == statusBuilding {
+			return false
+		}
+	}
+	return true
+}
+
+// scrollTarget はスクロール追従対象のアイテムインデックスを返す。
+// ビルド中のアイテムのうち最後のものを優先し、
+// なければ最後に完了したアイテムにフォールバックする。
+func (m *buildModel) scrollTarget() int {
+	last := -1
+	for i, item := range m.items {
+		if item.status == statusBuilding {
+			last = i
+		}
+	}
+	if last >= 0 {
+		return last
+	}
+	for i := len(m.items) - 1; i >= 0; i-- {
+		if m.items[i].status == statusSuccess || m.items[i].status == statusFailure {
+			return i
+		}
+	}
+	return 0
 }
 
 // appendLog はビルドログに 1 行追加する。
@@ -107,7 +168,7 @@ func (m *buildModel) appendLog(line string) {
 // 画面構成:
 //
 //	[タイトル]     "CS Builder - ビルド"
-//	[進捗]         "進捗: N / M"
+//	[進捗]         "進捗: N / M  (P 並列)  (Xs)"
 //	[アイテム一覧]  スクロール可能、ビルド中アイテムを追従
 //	[ログ区切り]   ───── ビルドログ ─────
 //	[ログ]         ターミナル高さに応じた動的行数
@@ -118,7 +179,6 @@ func (m buildModel) view(spinner string, termHeight int) string {
 	title := titleStyle.Render("CS Builder - ビルド")
 	b.WriteString(title + "\n")
 
-	// 成功・失敗の件数を集計して進捗表示に使用する
 	succeeded := 0
 	failed := 0
 	for _, item := range m.items {
@@ -134,26 +194,26 @@ func (m buildModel) view(spinner string, termHeight int) string {
 	if !m.done {
 		elapsed = time.Since(m.startTime)
 	}
+
+	parallelInfo := ""
+	if m.activeCount > 1 {
+		parallelInfo = fmt.Sprintf("  (%d 並列)", m.activeCount)
+	}
 	progress := progressStyle.Render(
-		fmt.Sprintf("進捗: %d / %d  (%s)", completed, len(m.items), elapsed.Truncate(time.Second)),
+		fmt.Sprintf("進捗: %d / %d%s  (%s)", completed, len(m.items), parallelInfo, elapsed.Truncate(time.Second)),
 	)
 	b.WriteString(progress + "\n\n")
 
-	// アイテム一覧とログの表示行数を計算する
 	itemVP, logVP := m.layoutHeights(termHeight)
 
-	// ビルド中のアイテムが表示範囲に収まるようオフセットを調整する
 	m.adjustOffset(itemVP)
 
-	// アイテム一覧のスクロール描画
 	endIdx := m.offset + itemVP
 	if endIdx > len(m.items) {
 		endIdx = len(m.items)
 	}
 	needScroll := len(m.items) > itemVP && itemVP > 0
 
-	// 表示範囲内の各行を先に組み立て、最大幅を求めてからパディングする。
-	// これによりスクロールインジケータの列位置が全行で揃う。
 	type rowData struct {
 		content string
 		width   int
@@ -186,11 +246,9 @@ func (m buildModel) view(spinner string, termHeight int) string {
 		b.WriteString(line + "\n")
 	}
 
-	// ビルドログセクション
 	b.WriteString("\n")
 	b.WriteString(headerBorder.Render("ビルドログ") + "\n")
 
-	// ログの末尾から logVP 行分を表示する
 	logStart := 0
 	if len(m.logLines) > logVP {
 		logStart = len(m.logLines) - logVP
@@ -199,7 +257,6 @@ func (m buildModel) view(spinner string, termHeight int) string {
 		b.WriteString(logStyle.Render(m.logLines[i]) + "\n")
 	}
 
-	// 全ビルド完了時のサマリ表示
 	if m.done {
 		b.WriteString("\n")
 		summary := fmt.Sprintf("完了: %d 成功, %d 失敗", succeeded, failed)
@@ -231,7 +288,6 @@ func (m buildModel) layoutHeights(termHeight int) (itemVP, logVP int) {
 		available = 2
 	}
 
-	// アイテム一覧は最大でアイテム数分、残りをログに割り当てる
 	itemVP = available / 2
 	if itemVP > len(m.items) {
 		itemVP = len(m.items)
@@ -251,11 +307,7 @@ func (m *buildModel) adjustOffset(vpHeight int) {
 	if vpHeight <= 0 {
 		return
 	}
-	// ビルド中 or 最後に完了したアイテムの位置を追従対象とする
-	target := m.currentIdx
-	if target >= len(m.items) {
-		target = len(m.items) - 1
-	}
+	target := m.scrollTarget()
 	if target < 0 {
 		return
 	}
