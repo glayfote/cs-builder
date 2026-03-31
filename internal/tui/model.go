@@ -11,6 +11,7 @@ import (
 
 	"builder/cs-builder/internal/artifact"
 	"builder/cs-builder/internal/builder"
+	"builder/cs-builder/internal/depgraph"
 	"builder/cs-builder/internal/scanner"
 )
 
@@ -44,6 +45,9 @@ type Model struct {
 
 	width  int // ターミナルの幅 (tea.WindowSizeMsg で更新)
 	height int // ターミナルの高さ (tea.WindowSizeMsg で更新)
+
+	graph         *depgraph.Graph // .csproj の HintPath から構築した依存グラフ (nil = 未構築)
+	graphWarnings []string        // グラフ構築時の警告 (.csproj パース失敗等)
 
 	sel   selectModel // ソリューション選択画面のサブモデル
 	build buildModel  // ビルド実行画面のサブモデル
@@ -80,11 +84,13 @@ func NewModel(projectRoot string, scanRoots []string, opts builder.BuildOption, 
 
 // --- Bubble Tea メッセージ型 ---
 
-// scanDoneMsg は非同期 .sln スキャンの完了を通知するメッセージ。
+// scanDoneMsg は非同期 .sln スキャンと依存グラフ構築の完了を通知するメッセージ。
 // err が非 nil の場合はスキャン失敗を意味する。
 type scanDoneMsg struct {
-	solutions []scanner.Solution // 見つかったソリューション一覧
-	err       error              // スキャン中に発生したエラー (正常時は nil)
+	solutions     []scanner.Solution // 見つかったソリューション一覧
+	graph         *depgraph.Graph    // .csproj HintPath から構築した依存グラフ (構築失敗時は nil)
+	graphWarnings []string           // グラフ構築時の警告 (.csproj パース失敗等)
+	err           error              // スキャン中に発生したエラー (正常時は nil)
 }
 
 // tickMsg はスピナーアニメーションの更新タイミングを通知するメッセージ。
@@ -254,7 +260,11 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		selected := m.sel.selectedSolutions()
-		m.build = newBuildModel(selected)
+		buildOrder := sortByDependency(m.graph, selected)
+		m.build = newBuildModel(buildOrder)
+		for _, w := range m.graphWarnings {
+			m.build.appendLog(fmt.Sprintf("[warn] 依存解析: %s", w))
+		}
 		m.state = stateBuilding
 		m.build.startNext()
 		return m, m.runBuildCmd()
@@ -269,15 +279,25 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // --- 非同期コマンド ---
 
-// scanCmd は .sln ファイルの非同期スキャンを実行する Bubble Tea コマンドを返す。
-// バックグラウンドで scanner.ScanMultiple を呼び出し、結果を scanDoneMsg として送信する。
+// scanCmd は .sln ファイルの非同期スキャンと依存グラフの構築を実行する
+// Bubble Tea コマンドを返す。
+// バックグラウンドで scanner.ScanMultiple を呼び出した後、
+// depgraph.Build で .csproj の HintPath を解析してグラフを構築する。
 func (m Model) scanCmd() tea.Cmd {
 	projectRoot := m.projectRoot
 	scanRoots := m.scanRoots
 	excludes := m.scanExcludes
 	return func() tea.Msg {
 		solutions, err := scanner.ScanMultiple(projectRoot, scanRoots, excludes)
-		return scanDoneMsg{solutions: solutions, err: err}
+		if err != nil {
+			return scanDoneMsg{err: err}
+		}
+		graph, warnings := depgraph.Build(solutions)
+		return scanDoneMsg{
+			solutions:     solutions,
+			graph:         graph,
+			graphWarnings: warnings,
+		}
 	}
 }
 
@@ -286,7 +306,7 @@ func (m Model) scanCmd() tea.Cmd {
 // 3 つのケースを処理する:
 //  1. スキャンエラー: Err にセットして TUI を終了
 //  2. ソリューションが 0 件: Done 画面に直行 (空のサマリ表示)
-//  3. 1 件以上: selectModel を初期化して選択画面に遷移
+//  3. 1 件以上: selectModel を初期化して選択画面に遷移、依存グラフを保持
 func (m Model) handleScanDone(msg scanDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.Err = msg.err
@@ -297,6 +317,8 @@ func (m Model) handleScanDone(msg scanDoneMsg) (tea.Model, tea.Cmd) {
 		m.build = newBuildModel(nil)
 		return m, nil
 	}
+	m.graph = msg.graph
+	m.graphWarnings = msg.graphWarnings
 	m.sel = newSelectModel(msg.solutions)
 	m.state = stateSelecting
 	return m, nil
@@ -372,6 +394,23 @@ func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 	}
 	m.build.startNext()
 	return m, m.runBuildCmd()
+}
+
+// sortByDependency は依存グラフに基づいてビルド順をソートする。
+// グラフが nil またはソートに失敗した場合は元の順序をそのまま返す (フォールバック)。
+func sortByDependency(g *depgraph.Graph, selected []scanner.Solution) []scanner.Solution {
+	if g == nil {
+		return selected
+	}
+	sorted, err := g.Sort(selected)
+	if err != nil {
+		return selected
+	}
+	result := make([]scanner.Solution, len(sorted))
+	for i, n := range sorted {
+		result[i] = n.Solution
+	}
+	return result
 }
 
 // resolveDllDir は .sln の絶対パスから所属する scan root を判定し、

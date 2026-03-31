@@ -287,7 +287,7 @@ func (m selectModel) view(termHeight int) string {
 	}
 
 	// ヘルプ行
-	helpText := "↑/↓: 移動  space: 選択  a: 全選択  /: フィルタ  enter: ビルド開始  q: 終了"
+	helpText := "↑/↓: 移動  space: 選択  a: 全選択  /: フィルタ  enter: ビルド開始 (依存順)  q: 終了"
 	if m.filtering {
 		helpText = "入力: 絞り込み  backspace: 削除  esc: フィルタ解除  ↑/↓: 移動  space: 選択"
 	}

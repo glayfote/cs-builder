@@ -32,9 +32,9 @@ type projectInfo struct {
 	TargetFramework string // ターゲットフレームワーク (例: "net8.0"、空なら非 SDK スタイル)
 }
 
-// slnProjectRe は .sln ファイルの Project 行から相対パスを抽出する。
+// SlnProjectRe は .sln ファイルの Project 行から相対パスを抽出する。
 // 形式: Project("{TypeGUID}") = "Name", "RelPath", "{GUID}"
-var slnProjectRe = regexp.MustCompile(
+var SlnProjectRe = regexp.MustCompile(
 	`^Project\("\{[^}]+\}"\)\s*=\s*"[^"]+",\s*"([^"]+)",\s*"\{[^}]+\}"`,
 )
 
@@ -90,7 +90,7 @@ func CopyArtifact(slnPath, configuration, sharedDllDir, baseDir string) error {
 
 // findAndParseProject は .sln をパースして参照先の .csproj を特定し、パースする。
 func findAndParseProject(slnPath string) (projectInfo, error) {
-	csprojRel, err := extractCsprojPath(slnPath)
+	csprojRel, err := ExtractCsprojPath(slnPath)
 	if err != nil {
 		return projectInfo{}, err
 	}
@@ -99,8 +99,8 @@ func findAndParseProject(slnPath string) (projectInfo, error) {
 	return parseCsproj(csprojPath)
 }
 
-// extractCsprojPath は .sln ファイルから最初の .csproj 参照の相対パスを返す。
-func extractCsprojPath(slnPath string) (string, error) {
+// ExtractCsprojPath は .sln ファイルから最初の .csproj 参照の相対パスを返す。
+func ExtractCsprojPath(slnPath string) (string, error) {
 	f, err := os.Open(slnPath)
 	if err != nil {
 		return "", fmt.Errorf(".sln の読み込みに失敗: %w", err)
@@ -109,7 +109,7 @@ func extractCsprojPath(slnPath string) (string, error) {
 
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
-		m := slnProjectRe.FindStringSubmatch(sc.Text())
+		m := SlnProjectRe.FindStringSubmatch(sc.Text())
 		if m == nil {
 			continue
 		}
