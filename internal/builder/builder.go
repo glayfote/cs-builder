@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -50,6 +51,7 @@ func Build(ctx context.Context, slnPath string, opts BuildOption, logCh chan<- s
 
 	// コマンド名と引数を BuildOption から決定する
 	name, args := buildCommand(slnPath, opts)
+	slog.Debug("build exec", "command", name, "args", args, "solution", slnPath)
 
 	// context 付きでプロセスを生成 (キャンセル時に自動 kill される)
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -57,6 +59,7 @@ func Build(ctx context.Context, slnPath string, opts BuildOption, logCh chan<- s
 	// stdout のパイプを取得し、行単位のストリーミング読み取りに使用する
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		slog.Error("stdout pipe failed", "solution", slnPath, "error", err)
 		msg := fmt.Sprintf("[error] stdout pipe: %v", err)
 		logCh <- msg
 		output.WriteString(msg + "\n")
@@ -70,6 +73,7 @@ func Build(ctx context.Context, slnPath string, opts BuildOption, logCh chan<- s
 
 	// プロセスを非同期に開始する
 	if err := cmd.Start(); err != nil {
+		slog.Error("process start failed", "solution", slnPath, "error", err)
 		msg := fmt.Sprintf("[error] start: %v", err)
 		logCh <- msg
 		output.WriteString(msg + "\n")

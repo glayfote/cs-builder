@@ -11,6 +11,7 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -19,6 +20,7 @@ import (
 
 	"builder/cs-builder/internal/builder"
 	"builder/cs-builder/internal/config"
+	"builder/cs-builder/internal/logging"
 	"builder/cs-builder/internal/tui"
 )
 
@@ -56,6 +58,13 @@ MSBuild (dotnet build / msbuild) でビルドします。
 		if err != nil {
 			return fmt.Errorf("設定ファイルの読み込みに失敗: %w", err)
 		}
+
+		// ログの初期化 (TOML の [log] セクション設定を使用)
+		logFile, err := logging.Setup(cfg.Log.Dir, cfg.Log.Level)
+		if err != nil {
+			return fmt.Errorf("ログの初期化に失敗: %w", err)
+		}
+		defer logFile.Close()
 
 		// CLI フラグ > TOML > デフォルト の優先順位でマージする。
 		// cmd.Flags().Changed() で明示的に指定されたフラグを判定する。
@@ -100,17 +109,28 @@ MSBuild (dotnet build / msbuild) でビルドします。
 			maxParallel = cfg.Defaults.MaxParallel
 		}
 
+		slog.Info("cs-builder started",
+			"projectRoot", projectRoot,
+			"buildCmd", buildCmd,
+			"config", buildConfig,
+			"maxParallel", maxParallel,
+			"scanRoots", scanRootPaths,
+		)
+
 		m := tui.NewModel(projectRoot, scanRootPaths, opts, cfg.Scan.Exclude, dllDirMap, maxParallel)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		finalModel, err := p.Run()
 		if err != nil {
+			slog.Error("TUI execution failed", "error", err)
 			return fmt.Errorf("TUI の実行に失敗: %w", err)
 		}
 
 		// TUI 内部で発生したエラー（スキャン失敗等）を呼び出し元に伝播する
 		if fm, ok := finalModel.(tui.Model); ok && fm.Err != nil {
+			slog.Error("TUI exited with error", "error", fm.Err)
 			return fm.Err
 		}
+		slog.Info("cs-builder finished")
 		return nil
 	},
 }

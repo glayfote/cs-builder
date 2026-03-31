@@ -9,6 +9,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -66,6 +67,8 @@ func CopyArtifact(slnPath, configuration, sharedDllDir, baseDir string) error {
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return fmt.Errorf("コピー先ディレクトリの作成に失敗: %w", err)
 	}
+
+	slog.Debug("copy artifact", "assembly", info.AssemblyName, "outputDir", outputDir, "dstDir", dstDir)
 
 	dllName := info.AssemblyName + ".dll"
 	if err := copyFile(filepath.Join(outputDir, dllName), filepath.Join(dstDir, dllName)); err != nil {

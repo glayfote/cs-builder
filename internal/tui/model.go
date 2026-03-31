@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -222,7 +223,21 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		selected := m.sel.selectedSolutions()
+		names := make([]string, len(selected))
+		for i, s := range selected {
+			names[i] = s.RelPath
+		}
+		slog.Info("build requested", "solutions", names)
 		nodes := sortByDependency(m.graph, selected)
+
+		levels := make(map[int][]string)
+		for _, n := range nodes {
+			levels[n.Level] = append(levels[n.Level], n.Solution.RelPath)
+		}
+		for lv := range len(levels) {
+			slog.Info("build order", "buildLevel", lv, "solutions", levels[lv])
+		}
+
 		m.build = newBuildModel(nodes, m.maxParallel)
 		for _, w := range m.graphWarnings {
 			m.build.appendLog(fmt.Sprintf("[warn] 依存解析: %s", w))
@@ -246,11 +261,28 @@ func (m Model) scanCmd() tea.Cmd {
 	scanRoots := m.scanRoots
 	excludes := m.scanExcludes
 	return func() tea.Msg {
+		slog.Info("scan started", "projectRoot", projectRoot, "scanRoots", scanRoots)
 		solutions, err := scanner.ScanMultiple(projectRoot, scanRoots, excludes)
 		if err != nil {
+			slog.Error("scan failed", "error", err)
 			return scanDoneMsg{err: err}
 		}
+		slog.Info("scan completed", "solutions", len(solutions))
 		graph, warnings := depgraph.Build(solutions)
+		for _, w := range warnings {
+			slog.Warn("dependency graph warning", "detail", w)
+		}
+
+		edges := graph.InternalEdges()
+		edgeCount := 0
+		for _, deps := range edges {
+			edgeCount += len(deps)
+		}
+		slog.Info("dependency graph built", "nodes", len(graph.Nodes()), "edges", edgeCount)
+		for name, deps := range edges {
+			slog.Debug("node dependencies", "assembly", name, "dependsOn", deps)
+		}
+
 		return scanDoneMsg{
 			solutions:     solutions,
 			graph:         graph,
@@ -334,16 +366,26 @@ func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 	}
 	m.build.completeItem(msg.itemIdx, msg.result)
 
+	slog.Info("build completed",
+		"solution", msg.result.Solution,
+		"success", msg.result.Success,
+		"duration", msg.result.Duration.String(),
+	)
+
 	if msg.result.Success && len(m.dllDirMap) > 0 {
 		if dllDir, scanRootAbs, ok := m.resolveDllDir(msg.result.Solution); ok {
 			if err := artifact.CopyArtifact(msg.result.Solution, m.buildOpts.Configuration, dllDir, scanRootAbs); err != nil {
+				slog.Warn("artifact copy failed", "solution", msg.result.Solution, "error", err)
 				m.build.appendLog(fmt.Sprintf("[warn] DLL コピー失敗: %v", err))
+			} else {
+				slog.Debug("artifact copied", "solution", msg.result.Solution, "dllDir", dllDir)
 			}
 		}
 	}
 
 	if m.build.done {
 		m.state = stateDone
+		slog.Info("all builds done")
 		return m, nil
 	}
 	return m, m.startLevelBatch()

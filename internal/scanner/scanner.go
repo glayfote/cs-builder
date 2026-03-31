@@ -8,6 +8,7 @@ package scanner
 import (
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"path/filepath"
 	"strings"
 )
@@ -42,6 +43,7 @@ func ScanMultiple(projectRoot string, scanRoots []string, extraExcludes []string
 		if err != nil {
 			return nil, fmt.Errorf("scan %s: %w", root, err)
 		}
+		slog.Debug("scan root done", "root", root, "found", len(solutions))
 		for i := range solutions {
 			solutions[i].RelPath = filepath.Join(root, solutions[i].RelPath)
 		}

@@ -18,3 +18,7 @@ msbuild = "C:/Program Files/Microsoft Visual Studio/18/Community/Msbuild/Current
 build_cmd = "msbuild"
 config = "Debug"
 max_parallel = 4
+
+[log]
+dir = "logs"       # ログディレクトリ（デフォルト: "logs"）
+level = "info"     # debug / info / warn / error（デフォルト: "info"）

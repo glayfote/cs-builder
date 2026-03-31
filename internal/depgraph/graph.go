@@ -27,6 +27,21 @@ type Graph struct {
 // Nodes は全ノードを返す。
 func (g *Graph) Nodes() []*Node { return g.nodes }
 
+// InternalEdges はグラフ内に両端が存在するエッジのみを返す。
+// キーは依存元の AssemblyName、値は依存先 AssemblyName のスライス。
+// 外部ライブラリなどグラフ外への参照は除外される。
+func (g *Graph) InternalEdges() map[string][]string {
+	edges := make(map[string][]string)
+	for name, deps := range g.adj {
+		for _, dep := range deps {
+			if _, ok := g.byAssembly[dep]; ok {
+				edges[name] = append(edges[name], dep)
+			}
+		}
+	}
+	return edges
+}
+
 // Build は全ソリューションの .csproj をパースして依存グラフを構築する。
 // パース失敗したソリューションは警告メッセージとともにスキップされ、
 // グラフ構築自体は継続する。

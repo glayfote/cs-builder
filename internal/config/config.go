@@ -19,11 +19,18 @@ type Config struct {
 	Scan     ScanConfig     `toml:"scan"`
 	Commands CommandsConfig `toml:"commands"`
 	Defaults DefaultsConfig `toml:"defaults"`
+	Log      LogConfig      `toml:"log"`
 
 	// Dir は設定ファイルが見つかったディレクトリの絶対パス。
 	// scan.project_root の相対パス解決に使用する。
 	// 設定ファイルが見つからなかった場合は空文字列。
 	Dir string `toml:"-"`
+}
+
+// LogConfig は構造化ログの出力に関する設定を保持する。
+type LogConfig struct {
+	Dir   string `toml:"dir"`   // ログ出力ディレクトリ (デフォルト: "logs")
+	Level string `toml:"level"` // ログレベル: debug/info/warn/error (デフォルト: "info")
 }
 
 // ScanConfig はスキャン動作に関する設定を保持する。
