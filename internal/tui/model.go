@@ -181,9 +181,37 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case stateSelecting:
 		return m.handleSelectKey(msg)
 	case stateDone:
-		if key := msg.String(); key == "enter" || key == "q" {
+		key := msg.String()
+		if key == "enter" || key == "q" {
 			return m, tea.Quit
 		}
+		return m.handleBuildListScrollKey(msg)
+	}
+	return m, nil
+}
+
+// handleBuildListScrollKey はビルド完了画面 (stateDone) で一覧を手動スクロールする (↑↓ jk PgUp/PgDn Home/End)。
+func (m Model) handleBuildListScrollKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	itemVP, _ := m.build.layoutHeights(m.height)
+	if itemVP <= 0 || len(m.build.items) <= itemVP {
+		return m, nil
+	}
+	key := msg.String()
+	switch key {
+	case "up", "k":
+		m.build.scrollBuildList(-1, itemVP)
+	case "down", "j":
+		m.build.scrollBuildList(1, itemVP)
+	case "pgup":
+		m.build.scrollBuildList(-itemVP, itemVP)
+	case "pgdown":
+		m.build.scrollBuildList(itemVP, itemVP)
+	case "home":
+		m.build.scrollBuildListHome(itemVP)
+	case "end":
+		m.build.scrollBuildListEnd(itemVP)
+	default:
+		return m, nil
 	}
 	return m, nil
 }
@@ -335,6 +363,7 @@ func (m *Model) fillBuildSlots() tea.Cmd {
 		m.build.activeCount++
 		cmds = append(cmds, m.runBuildForItem(idx))
 	}
+	m.build.refreshDisplayOrder()
 	if len(cmds) == 0 {
 		return nil
 	}

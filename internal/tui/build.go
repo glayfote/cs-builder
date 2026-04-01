@@ -35,7 +35,8 @@ type buildItem struct {
 // 選択サブグラフ上で「準備完了 (選択内前提がすべて完了)」なアイテムから起動し、
 // 選択内の他ノードから参照されているものを優先し、並列枠に余りがあれば低優先も起動する。
 type buildModel struct {
-	items                 []buildItem // ビルドキュー (表示順は Sort 済みトポ順)
+	items                 []buildItem // ビルドキュー (itemIdx はビルド Cmd と固定対応)
+	displayOrder          []int       // 画面上の行 i に items[displayOrder[i]] を表示 (refreshDisplayOrder で更新)
 	remainingInBatchDeps  []int       // 選択内前提のうち未完了の個数
 	dependents            [][]int     // 前提 i 完了時に remaining を減らす従属アイテムのインデックス
 	neededBySelected      []bool      // 選択内の誰かがこの出力を内部参照している (高優先)
@@ -43,7 +44,7 @@ type buildModel struct {
 	activeCount           int         // 現在実行中のビルド数
 	logLines              []string    // ビルドログ (全行を保持し、表示は末尾から動的行数分)
 	done                  bool        // 全ソリューションのビルドが完了したか
-	offset                int         // アイテム一覧のスクロールオフセット
+	offset                int         // アイテム一覧のスクロールオフセット (displayOrder 行基準)
 	startTime             time.Time   // ビルド開始時刻 (経過時間表示用)
 	elapsed               time.Duration // 確定済みの経過時間 (完了後は固定値)
 }
@@ -80,7 +81,7 @@ func newBuildModel(g *depgraph.Graph, nodes []*depgraph.Node, maxParallel int) b
 		needed[i] = len(dependents[i]) > 0
 	}
 
-	return buildModel{
+	bm := buildModel{
 		items:                items,
 		remainingInBatchDeps: remaining,
 		dependents:           dependents,
@@ -88,6 +89,64 @@ func newBuildModel(g *depgraph.Graph, nodes []*depgraph.Node, maxParallel int) b
 		maxParallel:          maxParallel,
 		startTime:            time.Now(),
 	}
+	bm.refreshDisplayOrder()
+	return bm
+}
+
+// displayRowGroup は画面上の縦並び用のグループ番号 (小さいほど上に表示)。
+func displayRowGroup(m *buildModel, i int) int {
+	switch m.items[i].status {
+	case statusBuilding:
+		return 0
+	case statusPending:
+		if m.remainingInBatchDeps[i] == 0 {
+			if m.neededBySelected[i] {
+				return 1 // 準備完了・高優先
+			}
+			return 2 // 準備完了・低優先
+		}
+		return 3 // 前提待ち
+	case statusSuccess, statusFailure:
+		return 4
+	default:
+		return 4
+	}
+}
+
+// refreshDisplayOrder はスケジューラと整合した優先度で表示行順 displayOrder を再構築する。
+func (m *buildModel) refreshDisplayOrder() {
+	n := len(m.items)
+	if n == 0 {
+		m.displayOrder = nil
+		return
+	}
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ia, ib := order[a], order[b]
+		ga, gb := displayRowGroup(m, ia), displayRowGroup(m, ib)
+		if ga != gb {
+			return ga < gb
+		}
+		switch ga {
+		case 0, 1, 2, 4: // ビルド中 / 準備完了 / 完了 は RelPath で安定順
+			return m.items[ia].solution.RelPath < m.items[ib].solution.RelPath
+		case 3: // 前提待ち: 残り前提が少ないほど上、同率は高優先→RelPath
+			ra, rb := m.remainingInBatchDeps[ia], m.remainingInBatchDeps[ib]
+			if ra != rb {
+				return ra < rb
+			}
+			if m.neededBySelected[ia] != m.neededBySelected[ib] {
+				return m.neededBySelected[ia]
+			}
+			return m.items[ia].solution.RelPath < m.items[ib].solution.RelPath
+		default:
+			return m.items[ia].solution.RelPath < m.items[ib].solution.RelPath
+		}
+	})
+	m.displayOrder = order
 }
 
 // readyPendingIndices は選択内前提がすべて完了済みで、まだ Pending のインデックスを返す。
@@ -180,6 +239,7 @@ func (m *buildModel) completeItem(idx int, result builder.BuildResult) {
 		m.done = true
 		m.elapsed = time.Since(m.startTime)
 	}
+	m.refreshDisplayOrder()
 }
 
 func (m *buildModel) allItemsFinished() bool {
@@ -192,22 +252,30 @@ func (m *buildModel) allItemsFinished() bool {
 	return true
 }
 
-// scrollTarget はスクロール追従対象のアイテムインデックスを返す。
+// scrollTarget はスクロール追従対象の displayOrder 上の行インデックスを返す。
 // ビルド中のアイテムのうち最後のものを優先し、
 // なければ最後に完了したアイテムにフォールバックする。
 func (m *buildModel) scrollTarget() int {
-	last := -1
+	targetItem := 0
+	lastBuilding := -1
 	for i, item := range m.items {
 		if item.status == statusBuilding {
-			last = i
+			lastBuilding = i
 		}
 	}
-	if last >= 0 {
-		return last
+	if lastBuilding >= 0 {
+		targetItem = lastBuilding
+	} else {
+		for i := len(m.items) - 1; i >= 0; i-- {
+			if m.items[i].status == statusSuccess || m.items[i].status == statusFailure {
+				targetItem = i
+				break
+			}
+		}
 	}
-	for i := len(m.items) - 1; i >= 0; i-- {
-		if m.items[i].status == statusSuccess || m.items[i].status == statusFailure {
-			return i
+	for row, idx := range m.displayOrder {
+		if idx == targetItem {
+			return row
 		}
 	}
 	return 0
@@ -268,7 +336,11 @@ func (m buildModel) view(spinner string, termHeight int) string {
 
 	itemVP, logVP := m.layoutHeights(termHeight)
 
-	m.adjustOffset(itemVP)
+	if !m.done {
+		m.adjustOffset(itemVP)
+	} else {
+		m.clampBuildListOffset(itemVP)
+	}
 
 	endIdx := m.offset + itemVP
 	if endIdx > len(m.items) {
@@ -283,8 +355,17 @@ func (m buildModel) view(spinner string, termHeight int) string {
 	rows := make([]rowData, 0, endIdx-m.offset)
 	maxWidth := 0
 
+	displayOrder := m.displayOrder
+	if len(displayOrder) != len(m.items) {
+		displayOrder = make([]int, len(m.items))
+		for i := range displayOrder {
+			displayOrder[i] = i
+		}
+	}
+
 	for vi := m.offset; vi < endIdx; vi++ {
-		item := m.items[vi]
+		itemIdx := displayOrder[vi]
+		item := m.items[itemIdx]
 		icon := statusIcon(item.status, spinner)
 		name := item.solution.RelPath
 		line := fmt.Sprintf("  %s %s", icon, name)
@@ -327,7 +408,11 @@ func (m buildModel) view(spinner string, termHeight int) string {
 		} else {
 			b.WriteString(successStyle.Render(summary) + "\n")
 		}
-		b.WriteString(helpStyle.Render("enter/q: 終了"))
+		help := "enter/q: 終了"
+		if needScroll {
+			help += "  ↑↓ jk  PgUp/PgDn  Home/End: 一覧"
+		}
+		b.WriteString(helpStyle.Render(help))
 	}
 
 	return b.String()
@@ -380,13 +465,44 @@ func (m *buildModel) adjustOffset(vpHeight int) {
 	if target >= m.offset+vpHeight {
 		m.offset = target - vpHeight + 1
 	}
+	m.clampBuildListOffset(vpHeight)
+}
+
+// clampBuildListOffset は一覧の offset を有効範囲に収める。
+func (m *buildModel) clampBuildListOffset(vpHeight int) {
+	if vpHeight <= 0 {
+		return
+	}
 	maxOffset := len(m.items) - vpHeight
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
+	if m.offset < 0 {
+		m.offset = 0
+	}
 	if m.offset > maxOffset {
 		m.offset = maxOffset
 	}
+}
+
+// scrollBuildList は一覧の先頭行オフセットを delta 分動かす (完了後の手動スクロール用)。
+func (m *buildModel) scrollBuildList(delta, vpHeight int) {
+	m.offset += delta
+	m.clampBuildListOffset(vpHeight)
+}
+
+// scrollBuildListHome は一覧の先頭へ、End は末尾付近へスクロールする。
+func (m *buildModel) scrollBuildListHome(vpHeight int) {
+	m.offset = 0
+	m.clampBuildListOffset(vpHeight)
+}
+
+func (m *buildModel) scrollBuildListEnd(vpHeight int) {
+	maxOffset := len(m.items) - vpHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	m.offset = maxOffset
 }
 
 // scrollIndicator はビューポート内の各行に対するスクロールバー文字を返す。
