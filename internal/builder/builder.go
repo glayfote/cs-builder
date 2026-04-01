@@ -101,7 +101,10 @@ func Build(ctx context.Context, slnPath string, opts BuildOption, logCh chan<- s
 //
 // "msbuild" の場合:
 //
-//	msbuild <slnPath> /p:Configuration=<cfg> /nologo /v:minimal
+//	msbuild /restore <slnPath> /p:Configuration=<cfg> /nologo /v:minimal
+//
+// /restore は SDK スタイルのプロジェクトで obj/project.assets.json を生成する
+// NuGet 復元をビルド前に実行する。dotnet build は暗黙復元があるが MSBuild 単体にはない。
 //
 // それ以外 (デフォルト "dotnet") の場合:
 //
@@ -121,6 +124,7 @@ func buildCommand(slnPath string, opts BuildOption) (string, []string) {
 			name = "msbuild"
 		}
 		return name, []string{
+			"/restore",
 			slnPath,
 			fmt.Sprintf("/p:Configuration=%s", cfg),
 			"/nologo",
