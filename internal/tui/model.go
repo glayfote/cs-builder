@@ -41,7 +41,7 @@ type Model struct {
 	projectRoot string             // プロジェクトルート (RelPath / shared_dll_dir の基準)
 	scanRoots   []string           // スキャン対象サブディレクトリ (projectRoot からの相対、空なら全体)
 	buildOpts   builder.BuildOption // ビルドコマンドのオプション (コマンド名、構成)
-	maxParallel int                // 同一レベル内の最大並列ビルド数 (0=無制限)
+	maxParallel int                // 最大並列ビルド数 (0=無制限)
 
 	scanExcludes []string           // スキャン時の追加除外パターン (.cs-builder.toml の scan.exclude)
 	dllDirMap    map[string]string  // scan root path → コピー先絶対パス (空マップならコピー無効)
@@ -71,7 +71,7 @@ type Model struct {
 //   - opts         : ビルドコマンドのオプション (コマンド名、構成、パス)
 //   - scanExcludes : スキャン時の追加除外パターン
 //   - dllDirMap    : scan root path → コピー先絶対パス (空マップならコピー無効)
-//   - maxParallel  : 同一レベル内の最大並列ビルド数 (0=無制限)
+//   - maxParallel  : 最大並列ビルド数 (0=無制限)
 //   - buildLog     : ビルドツールの stdout/stderr 全文を追記する先 (nil なら書かない)
 //
 // 初期状態は stateScanning で、Init() により非同期スキャンが開始される。
@@ -234,20 +234,33 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		slog.Info("build requested", "solutions", names)
 		nodes := sortByDependency(m.graph, selected)
 
-		levels := make(map[int][]string)
+		topo := make([]string, 0, len(nodes))
 		for _, n := range nodes {
-			levels[n.Level] = append(levels[n.Level], n.Solution.RelPath)
+			topo = append(topo, n.Solution.RelPath)
 		}
-		for lv := range len(levels) {
-			slog.Info("build order", "buildLevel", lv, "solutions", levels[lv])
+		slog.Info("build order", "topo", topo)
+		if m.graph != nil {
+			_, dep := m.graph.ScheduleFromSorted(nodes)
+			if dep != nil {
+				high := make([]string, 0)
+				low := make([]string, 0)
+				for i, n := range nodes {
+					if len(dep[i]) > 0 {
+						high = append(high, n.Solution.RelPath)
+					} else {
+						low = append(low, n.Solution.RelPath)
+					}
+				}
+				slog.Debug("build scheduler priority", "high", high, "low", low)
+			}
 		}
 
-		m.build = newBuildModel(nodes, m.maxParallel)
+		m.build = newBuildModel(m.graph, nodes, m.maxParallel)
 		for _, w := range m.graphWarnings {
 			m.build.appendLog(fmt.Sprintf("[warn] 依存解析: %s", w))
 		}
 		m.state = stateBuilding
-		return m, m.startLevelBatch()
+		return m, m.fillBuildSlots()
 	case "q":
 		if m.sel.filtering {
 			return m, nil
@@ -303,7 +316,7 @@ func (m Model) handleScanDone(msg scanDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	if len(msg.solutions) == 0 {
 		m.state = stateDone
-		m.build = newBuildModel(nil, m.maxParallel)
+		m.build = newBuildModel(nil, nil, m.maxParallel)
 		return m, nil
 	}
 	m.graph = msg.graph
@@ -313,14 +326,11 @@ func (m Model) handleScanDone(msg scanDoneMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// startLevelBatch は現在レベルの未開始アイテムを maxParallel まで起動する。
+// fillBuildSlots は準備完了かつ優先度に従って、並列枠に収まる分のビルドを起動する。
 // 起動したビルド Cmd を tea.Batch でまとめて返す。
-func (m *Model) startLevelBatch() tea.Cmd {
+func (m *Model) fillBuildSlots() tea.Cmd {
 	var cmds []tea.Cmd
-	for _, idx := range m.build.pendingInCurrentLevel() {
-		if m.build.maxParallel > 0 && m.build.activeCount >= m.build.maxParallel {
-			break
-		}
+	for _, idx := range m.build.pickNextToStart() {
 		m.build.items[idx].status = statusBuilding
 		m.build.activeCount++
 		cmds = append(cmds, m.runBuildForItem(idx))
@@ -363,7 +373,7 @@ func (m Model) runBuildForItem(idx int) tea.Cmd {
 //  2. 完了したアイテムの結果を記録する (completeItem)
 //  3. ビルド成功時に成果物を共有 DLL ディレクトリにコピーする
 //  4. 全アイテム完了なら Done 画面に遷移
-//  5. 未完了なら startLevelBatch() で同レベルの残りまたは次レベルを起動
+//  5. 未完了なら fillBuildSlots() で準備完了分を優先度付きで起動
 func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 	for _, line := range msg.logs {
 		m.build.appendLog(line)
@@ -402,7 +412,7 @@ func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 		slog.Info("all builds done")
 		return m, nil
 	}
-	return m, m.startLevelBatch()
+	return m, m.fillBuildSlots()
 }
 
 // sortByDependency は依存グラフに基づいてビルド順をソートする。

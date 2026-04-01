@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,19 +32,20 @@ type buildItem struct {
 }
 
 // buildModel はビルド実行画面の状態を保持する。
-// ソリューションを依存レベル単位でグループ化し、同一レベル内で並列ビルドを行う。
-// レベル間は直列で処理し、依存先が先にビルドされることを保証する。
+// 選択サブグラフ上で「準備完了 (選択内前提がすべて完了)」なアイテムから起動し、
+// 選択内の他ノードから参照されているものを優先し、並列枠に余りがあれば低優先も起動する。
 type buildModel struct {
-	items        []buildItem    // ビルドキュー (依存順にソート済み)
-	levels       [][]int        // levels[i] = レベル i に属するアイテムの items 内インデックス
-	currentLevel int            // 現在処理中のレベル
-	maxParallel  int            // 最大並列ビルド数 (0 = 無制限)
-	activeCount  int            // 現在実行中のビルド数
-	logLines     []string       // ビルドログ (全行を保持し、表示は末尾から動的行数分)
-	done         bool           // 全ソリューションのビルドが完了したか
-	offset       int            // アイテム一覧のスクロールオフセット
-	startTime    time.Time      // ビルド開始時刻 (経過時間表示用)
-	elapsed      time.Duration  // 確定済みの経過時間 (完了後は固定値)
+	items                 []buildItem // ビルドキュー (表示順は Sort 済みトポ順)
+	remainingInBatchDeps  []int       // 選択内前提のうち未完了の個数
+	dependents            [][]int     // 前提 i 完了時に remaining を減らす従属アイテムのインデックス
+	neededBySelected      []bool      // 選択内の誰かがこの出力を内部参照している (高優先)
+	maxParallel           int         // 最大並列ビルド数 (0 = 無制限)
+	activeCount           int         // 現在実行中のビルド数
+	logLines              []string    // ビルドログ (全行を保持し、表示は末尾から動的行数分)
+	done                  bool        // 全ソリューションのビルドが完了したか
+	offset                int         // アイテム一覧のスクロールオフセット
+	startTime             time.Time   // ビルド開始時刻 (経過時間表示用)
+	elapsed               time.Duration // 確定済みの経過時間 (完了後は固定値)
 }
 
 // buildFixedLines はアイテム一覧・ログ以外の固定行数。
@@ -53,48 +55,109 @@ type buildModel struct {
 const buildFixedLines = 8
 
 // newBuildModel は依存順にソートされたノード群からビルドキューを初期化する。
-// ノードの Level フィールドに基づいてレベルグループを構築する。
-func newBuildModel(nodes []*depgraph.Node, maxParallel int) buildModel {
-	items := make([]buildItem, len(nodes))
-	levelMax := 0
-	for i, n := range nodes {
-		items[i] = buildItem{solution: n.Solution, status: statusPending}
-		if n.Level > levelMax {
-			levelMax = n.Level
-		}
+// g が nil のときは選択内依存なし (全件すぐ準備完了・優先度差なし) として扱う。
+func newBuildModel(g *depgraph.Graph, nodes []*depgraph.Node, maxParallel int) buildModel {
+	if len(nodes) == 0 {
+		return buildModel{maxParallel: maxParallel, startTime: time.Now()}
 	}
 
-	levels := make([][]int, levelMax+1)
+	items := make([]buildItem, len(nodes))
 	for i, n := range nodes {
-		levels[n.Level] = append(levels[n.Level], i)
+		items[i] = buildItem{solution: n.Solution, status: statusPending}
+	}
+
+	var remaining []int
+	var dependents [][]int
+	if g != nil {
+		remaining, dependents = g.ScheduleFromSorted(nodes)
+	}
+	if remaining == nil {
+		remaining = make([]int, len(nodes))
+		dependents = make([][]int, len(nodes))
+	}
+	needed := make([]bool, len(nodes))
+	for i := range nodes {
+		needed[i] = len(dependents[i]) > 0
 	}
 
 	return buildModel{
-		items:       items,
-		levels:      levels,
-		maxParallel: maxParallel,
-		startTime:   time.Now(),
+		items:                items,
+		remainingInBatchDeps: remaining,
+		dependents:           dependents,
+		neededBySelected:     needed,
+		maxParallel:          maxParallel,
+		startTime:            time.Now(),
 	}
 }
 
-// pendingInCurrentLevel は現在レベルの未開始アイテムのインデックスを返す。
-func (m *buildModel) pendingInCurrentLevel() []int {
-	if m.currentLevel >= len(m.levels) {
+// readyPendingIndices は選択内前提がすべて完了済みで、まだ Pending のインデックスを返す。
+func (m *buildModel) readyPendingIndices() []int {
+	var out []int
+	for i := range m.items {
+		if m.items[i].status != statusPending {
+			continue
+		}
+		if m.remainingInBatchDeps[i] != 0 {
+			continue
+		}
+		out = append(out, i)
+	}
+	return out
+}
+
+// pickNextToStart は maxParallel と activeCount に応じて、今回起動するインデックスを返す。
+// 高優先 (neededBySelected) を RelPath 順で先に埋め、余り枠で低優先を同様に取る。
+func (m *buildModel) pickNextToStart() []int {
+	ready := m.readyPendingIndices()
+	if len(ready) == 0 {
 		return nil
 	}
-	var pending []int
-	for _, idx := range m.levels[m.currentLevel] {
-		if m.items[idx].status == statusPending {
-			pending = append(pending, idx)
+
+	var high, low []int
+	for _, idx := range ready {
+		if m.neededBySelected[idx] {
+			high = append(high, idx)
+		} else {
+			low = append(low, idx)
 		}
 	}
-	return pending
+	sort.Slice(high, func(i, j int) bool {
+		return m.items[high[i]].solution.RelPath < m.items[high[j]].solution.RelPath
+	})
+	sort.Slice(low, func(i, j int) bool {
+		return m.items[low[i]].solution.RelPath < m.items[low[j]].solution.RelPath
+	})
+
+	slots := len(ready)
+	if m.maxParallel > 0 {
+		slots = m.maxParallel - m.activeCount
+		if slots < 0 {
+			slots = 0
+		}
+	}
+	if slots == 0 {
+		return nil
+	}
+
+	var out []int
+	for _, idx := range high {
+		if len(out) >= slots {
+			break
+		}
+		out = append(out, idx)
+	}
+	for _, idx := range low {
+		if len(out) >= slots {
+			break
+		}
+		out = append(out, idx)
+	}
+	return out
 }
 
 // completeItem は指定インデックスのアイテムにビルド結果を設定し、
 // ステータスを Success/Failure に遷移させる。
-// レベル内の全アイテムが完了した場合は次のレベルに進む。
-// 全レベル完了なら done を true にする。
+// 従属アイテムの remainingInBatchDeps を減らし、全アイテム完了なら done を true にする。
 func (m *buildModel) completeItem(idx int, result builder.BuildResult) {
 	if idx < 0 || idx >= len(m.items) {
 		return
@@ -107,22 +170,21 @@ func (m *buildModel) completeItem(idx int, result builder.BuildResult) {
 	}
 	m.activeCount--
 
-	if m.isLevelDone(m.currentLevel) {
-		m.currentLevel++
-		if m.currentLevel >= len(m.levels) {
-			m.done = true
-			m.elapsed = time.Since(m.startTime)
+	for _, j := range m.dependents[idx] {
+		if j >= 0 && j < len(m.remainingInBatchDeps) && m.remainingInBatchDeps[j] > 0 {
+			m.remainingInBatchDeps[j]--
 		}
+	}
+
+	if m.allItemsFinished() {
+		m.done = true
+		m.elapsed = time.Since(m.startTime)
 	}
 }
 
-// isLevelDone は指定レベルの全アイテムがビルド済み (成功 or 失敗) かを返す。
-func (m *buildModel) isLevelDone(level int) bool {
-	if level >= len(m.levels) {
-		return true
-	}
-	for _, idx := range m.levels[level] {
-		s := m.items[idx].status
+func (m *buildModel) allItemsFinished() bool {
+	for i := range m.items {
+		s := m.items[i].status
 		if s == statusPending || s == statusBuilding {
 			return false
 		}

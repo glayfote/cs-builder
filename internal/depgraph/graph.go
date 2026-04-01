@@ -149,6 +149,31 @@ func (g *Graph) Sort(selected []scanner.Solution) ([]*Node, error) {
 	return result, nil
 }
 
+// ScheduleFromSorted は Sort(selected) が返したノード列と同じ順序を前提に、
+// 選択サブグラフ内の「未完了の選択内前提の数」と「前提完了時にデクリメントする従属インデックス」を構築する。
+// g が nil または nodes が空のときは nil を返す。
+func (g *Graph) ScheduleFromSorted(nodes []*Node) (remainingInBatchDeps []int, dependents [][]int) {
+	if g == nil || len(nodes) == 0 {
+		return nil, nil
+	}
+	n := len(nodes)
+	remainingInBatchDeps = make([]int, n)
+	dependents = make([][]int, n)
+	idx := make(map[string]int, n)
+	for i, node := range nodes {
+		idx[node.AssemblyName] = i
+	}
+	for i, node := range nodes {
+		for _, dep := range g.adj[node.AssemblyName] {
+			if j, ok := idx[dep]; ok {
+				remainingInBatchDeps[i]++
+				dependents[j] = append(dependents[j], i)
+			}
+		}
+	}
+	return remainingInBatchDeps, dependents
+}
+
 // nodeBySlnPath は .sln の絶対パスからノードを検索する。
 func (g *Graph) nodeBySlnPath(absPath string) (*Node, bool) {
 	for _, n := range g.nodes {

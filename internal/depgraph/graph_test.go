@@ -190,6 +190,42 @@ func TestSort_DriverDependency(t *testing.T) {
 	}
 }
 
+func TestScheduleFromSorted_PkgChain(t *testing.T) {
+	solutions := scanAll(t)
+	g, _ := Build(solutions)
+	pkgA := findSolution(solutions, "pkg_a")
+	pkgB := findSolution(solutions, "pkg_b")
+	nodes, err := g.Sort([]scanner.Solution{pkgB, pkgA})
+	if err != nil {
+		t.Fatalf("Sort: %v", err)
+	}
+	rem, dep := g.ScheduleFromSorted(nodes)
+	if len(rem) != 2 || len(dep) != 2 {
+		t.Fatalf("ScheduleFromSorted len: rem=%d dep=%d", len(rem), len(dep))
+	}
+	idxA, idxB := -1, -1
+	for i, n := range nodes {
+		switch n.AssemblyName {
+		case "pkg_a":
+			idxA = i
+		case "pkg_b":
+			idxB = i
+		}
+	}
+	if idxA < 0 || idxB < 0 {
+		t.Fatal("pkg_a / pkg_b index")
+	}
+	if rem[idxA] != 0 || rem[idxB] != 1 {
+		t.Errorf("remaining: pkg_a=%d pkg_b=%d, want 0 and 1", rem[idxA], rem[idxB])
+	}
+	if len(dep[idxA]) != 1 || dep[idxA][0] != idxB {
+		t.Errorf("dependents[pkg_a] = %v, want [%d]", dep[idxA], idxB)
+	}
+	if len(dep[idxB]) != 0 {
+		t.Errorf("dependents[pkg_b] = %v, want []", dep[idxB])
+	}
+}
+
 func TestExtractAssemblyFromHintPath(t *testing.T) {
 	cases := []struct {
 		input string
