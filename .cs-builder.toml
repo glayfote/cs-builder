@@ -22,3 +22,4 @@ max_parallel = 4
 [log]
 dir = "logs"       # ログディレクトリ（デフォルト: "logs"）
 level = "info"     # debug / info / warn / error（デフォルト: "info"）
+build_log = true   # true なら MSBuild/dotnet 全文を <日時>-build.txt に追記（JSON .log と同じ stem）

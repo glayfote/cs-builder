@@ -13,22 +13,22 @@ import (
 // Node は DAG 内の 1 つのビルド対象（.sln）を表す。
 type Node struct {
 	Solution     scanner.Solution
-	AssemblyName string
-	Level        int // トポロジカルソートで算出される深さ (0 = 依存なし)
+	AssemblyName string // MSBuild の出力アセンブリ名（グラフのキー。省略時は .csproj ベース名）
+	Level        int    // トポロジカルソートで算出される深さ (0 = 依存なし)
 }
 
 // Graph は Solution 間の依存 DAG を保持する。
 type Graph struct {
 	nodes      []*Node
-	adj        map[string][]string // AssemblyName → 依存先 AssemblyNames
-	byAssembly map[string]*Node    // AssemblyName → Node (逆引き)
+	adj        map[string][]string // 出力アセンブリ名 → 依存先の出力アセンブリ名
+	byAssembly map[string]*Node    // 出力アセンブリ名 → Node (逆引き)
 }
 
 // Nodes は全ノードを返す。
 func (g *Graph) Nodes() []*Node { return g.nodes }
 
 // InternalEdges はグラフ内に両端が存在するエッジのみを返す。
-// キーは依存元の AssemblyName、値は依存先 AssemblyName のスライス。
+// キーは依存元の出力アセンブリ名、値は依存先の出力アセンブリ名のスライス。
 // 外部ライブラリなどグラフ外への参照は除外される。
 func (g *Graph) InternalEdges() map[string][]string {
 	edges := make(map[string][]string)

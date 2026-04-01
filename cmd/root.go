@@ -11,6 +11,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -60,11 +61,19 @@ MSBuild (dotnet build / msbuild) でビルドします。
 		}
 
 		// ログの初期化 (TOML の [log] セクション設定を使用)
-		logFile, err := logging.Setup(cfg.Log.Dir, cfg.Log.Level)
+		logFiles, err := logging.Setup(cfg.Log.Dir, cfg.Log.Level, cfg.Log.BuildLog)
 		if err != nil {
 			return fmt.Errorf("ログの初期化に失敗: %w", err)
 		}
-		defer logFile.Close()
+		defer logFiles.App.Close()
+		if logFiles.Build != nil {
+			defer logFiles.Build.Close()
+		}
+
+		var buildLogOut io.Writer
+		if logFiles.Build != nil {
+			buildLogOut = logFiles.Build
+		}
 
 		// CLI フラグ > TOML > デフォルト の優先順位でマージする。
 		// cmd.Flags().Changed() で明示的に指定されたフラグを判定する。
@@ -117,7 +126,7 @@ MSBuild (dotnet build / msbuild) でビルドします。
 			"scanRoots", scanRootPaths,
 		)
 
-		m := tui.NewModel(projectRoot, scanRootPaths, opts, cfg.Scan.Exclude, dllDirMap, maxParallel)
+		m := tui.NewModel(projectRoot, scanRootPaths, opts, cfg.Scan.Exclude, dllDirMap, maxParallel, buildLogOut)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		finalModel, err := p.Run()
 		if err != nil {

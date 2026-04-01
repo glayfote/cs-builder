@@ -1,18 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>Pfm.Common.Utils.Util2</RootNamespace>
-    <AssemblyName>Pfm.Common.Utils.Util2</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Pfm.Common.IfA">
-      <HintPath>..\..\..\5_dll\common\if\if_a\Pfm.Common.IfA.dll</HintPath>
+    <Reference Include="if_a">
+      <HintPath>..\..\..\5_dll\common\if\if_a\if_a.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Pfm.Common.IfB">
-      <HintPath>..\..\..\5_dll\common\if\if_b\Pfm.Common.IfB.dll</HintPath>
+    <Reference Include="if_b">
+      <HintPath>..\..\..\5_dll\common\if\if_b\if_b.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

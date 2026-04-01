@@ -2,26 +2,24 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>Pfm.Driver.PkgF4</RootNamespace>
-    <AssemblyName>Pfm.Driver.PkgF4</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Pfm.Common.IfA">
-      <HintPath>..\..\..\5_dll\common\if\if_a\Pfm.Common.IfA.dll</HintPath>
+    <Reference Include="if_a">
+      <HintPath>..\..\..\5_dll\common\if\if_a\if_a.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Pfm.Common.IfC">
-      <HintPath>..\..\..\5_dll\common\if\if_c\Pfm.Common.IfC.dll</HintPath>
+    <Reference Include="if_c">
+      <HintPath>..\..\..\5_dll\common\if\if_c\if_c.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Pfm.Common.IfD">
-      <HintPath>..\..\..\5_dll\common\if\if_d\Pfm.Common.IfD.dll</HintPath>
+    <Reference Include="if_d">
+      <HintPath>..\..\..\5_dll\common\if\if_d\if_d.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Pfm.Common.Utils.Util3">
-      <HintPath>..\..\..\5_dll\common\utils\util3\Pfm.Common.Utils.Util3.dll</HintPath>
+    <Reference Include="util3">
+      <HintPath>..\..\..\5_dll\common\utils\util3\util3.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

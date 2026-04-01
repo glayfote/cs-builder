@@ -29,7 +29,7 @@ type propertyGroup struct {
 // projectInfo は .csproj から抽出したビルド成果物の特定に必要な情報を保持する。
 type projectInfo struct {
 	Dir             string // .csproj が存在するディレクトリの絶対パス
-	AssemblyName    string // 出力アセンブリ名 (省略時は .csproj のファイル名)
+	AssemblyName    string // MSBuild の出力アセンブリ名（SDK スタイルで省略時は .csproj のベース名）
 	TargetFramework string // ターゲットフレームワーク (例: "net8.0"、空なら非 SDK スタイル)
 }
 
@@ -41,7 +41,7 @@ var SlnProjectRe = regexp.MustCompile(
 
 // CopyArtifact はビルド済みの成果物を共有 DLL ディレクトリにコピーする。
 //
-// slnPath をパースして参照先の .csproj を特定し、AssemblyName と TargetFramework を読み取って
+// slnPath をパースして参照先の .csproj を特定し、出力アセンブリ名（任意の AssemblyName または .csproj ベース名）と TargetFramework を読み取って
 // ビルド出力パスを組み立て、DLL / PDB / deps.json を sharedDllDir にコピーする。
 //
 // baseDir (scan root) からの相対パスでディレクトリ構造を保持する。
@@ -127,7 +127,7 @@ func ExtractCsprojPath(slnPath string) (string, error) {
 	return "", fmt.Errorf(".sln に .csproj の参照が見つかりません: %s", slnPath)
 }
 
-// parseCsproj は .csproj ファイルから AssemblyName と TargetFramework を抽出する。
+// parseCsproj は .csproj から AssemblyName（任意）と TargetFramework を抽出する。
 func parseCsproj(path string) (projectInfo, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -152,7 +152,7 @@ func parseCsproj(path string) (projectInfo, error) {
 		}
 	}
 
-	// AssemblyName 省略時は .csproj のファイル名をフォールバック (MSBuild の標準動作)
+	// AssemblyName 未指定時は .csproj のベース名（拡張子除く）を使う（SDK スタイルの既定）
 	if info.AssemblyName == "" {
 		base := filepath.Base(path)
 		info.AssemblyName = strings.TrimSuffix(base, filepath.Ext(base))

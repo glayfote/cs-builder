@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// csprojDeps は .csproj ファイルから AssemblyName と HintPath 参照を
+// csprojDeps は .csproj から任意の AssemblyName プロパティと HintPath 参照を
 // 抽出するための XML 構造体。
 type csprojDeps struct {
 	PropertyGroups []depPropertyGroup `xml:"PropertyGroup"`
@@ -35,11 +35,11 @@ type depReference struct {
 
 // projectDeps は .csproj から抽出した依存解決に必要な情報を保持する。
 type projectDeps struct {
-	AssemblyName string   // このプロジェクトが生成するアセンブリ名
+	AssemblyName string   // MSBuild 上の出力アセンブリ名（AssemblyName 省略時は .csproj のベース名）
 	Dependencies []string // HintPath から抽出した依存先アセンブリ名の一覧
 }
 
-// parseCsprojDeps は .csproj ファイルから AssemblyName と HintPath 依存先を抽出する。
+// parseCsprojDeps は .csproj から出力アセンブリ名（明示または .csproj ベース名）と HintPath 依存先を抽出する。
 func parseCsprojDeps(path string) (projectDeps, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -82,7 +82,7 @@ func parseCsprojDeps(path string) (projectDeps, error) {
 }
 
 // extractAssemblyFromHintPath は HintPath からアセンブリ名を抽出する。
-// 例: "..\..\5_dll\common\if\if_a\Pfm.Common.IfA.dll" → "Pfm.Common.IfA"
+// 例: "..\..\5_dll\common\if\if_a\if_a.dll" → "if_a"
 func extractAssemblyFromHintPath(hintPath string) string {
 	if hintPath == "" {
 		return ""

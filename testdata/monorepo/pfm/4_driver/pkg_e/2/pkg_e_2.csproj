@@ -2,18 +2,16 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>Pfm.Driver.PkgE2</RootNamespace>
-    <AssemblyName>Pfm.Driver.PkgE2</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Pfm.Common.IfA">
-      <HintPath>..\..\..\5_dll\common\if\if_a\Pfm.Common.IfA.dll</HintPath>
+    <Reference Include="if_a">
+      <HintPath>..\..\..\5_dll\common\if\if_a\if_a.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Pfm.Common.IfC">
-      <HintPath>..\..\..\5_dll\common\if\if_c\Pfm.Common.IfC.dll</HintPath>
+    <Reference Include="if_c">
+      <HintPath>..\..\..\5_dll\common\if\if_c\if_c.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

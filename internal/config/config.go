@@ -29,8 +29,9 @@ type Config struct {
 
 // LogConfig は構造化ログの出力に関する設定を保持する。
 type LogConfig struct {
-	Dir   string `toml:"dir"`   // ログ出力ディレクトリ (デフォルト: "logs")
-	Level string `toml:"level"` // ログレベル: debug/info/warn/error (デフォルト: "info")
+	Dir      string `toml:"dir"`       // ログ出力ディレクトリ (デフォルト: "logs")
+	Level    string `toml:"level"`     // ログレベル: debug/info/warn/error (デフォルト: "info")
+	BuildLog bool   `toml:"build_log"` // true なら MSBuild/dotnet の全文を <stem>-build.txt に追記
 }
 
 // ScanConfig はスキャン動作に関する設定を保持する。

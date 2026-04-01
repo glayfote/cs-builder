@@ -2,26 +2,24 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>Pfm.Driver.PkgB</RootNamespace>
-    <AssemblyName>Pfm.Driver.PkgB</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Pfm.Common.IfA">
-      <HintPath>..\..\5_dll\common\if\if_a\Pfm.Common.IfA.dll</HintPath>
+    <Reference Include="if_a">
+      <HintPath>..\..\5_dll\common\if\if_a\if_a.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Pfm.Common.IfB">
-      <HintPath>..\..\5_dll\common\if\if_b\Pfm.Common.IfB.dll</HintPath>
+    <Reference Include="if_b">
+      <HintPath>..\..\5_dll\common\if\if_b\if_b.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Pfm.Common.Utils.Util2">
-      <HintPath>..\..\5_dll\common\utils\util2\Pfm.Common.Utils.Util2.dll</HintPath>
+    <Reference Include="util2">
+      <HintPath>..\..\5_dll\common\utils\util2\util2.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Pfm.Driver.PkgA">
-      <HintPath>..\..\5_dll\driver\pkg_a\Pfm.Driver.PkgA.dll</HintPath>
+    <Reference Include="pkg_a">
+      <HintPath>..\..\5_dll\driver\pkg_a\pkg_a.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

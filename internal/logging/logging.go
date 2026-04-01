@@ -3,6 +3,7 @@
 //
 // Bubble Tea TUI が stderr を占有するため、ログは常にファイルに出力する。
 // ログファイルは実行ごとに YYYY-MM-DD_hhmmss.log の名前で新規作成される。
+// buildLog が有効なときは同じタイムスタンプで YYYY-MM-DD_hhmmss-build.txt も作成する。
 package logging
 
 import (
@@ -16,6 +17,13 @@ import (
 
 const defaultDir = "logs"
 
+// Files はアプリ用 JSON ログと任意のビルドプレーンログファイルを表す。
+// Build は build_log 無効時 nil。呼び出し側で App / Build を defer Close する。
+type Files struct {
+	App   *os.File
+	Build *os.File
+}
+
 // Setup はログディレクトリの作成、ログファイルの生成、
 // slog グローバルロガーの設定を行う。
 //
@@ -23,22 +31,22 @@ const defaultDir = "logs"
 // level は "debug", "info", "warn", "error" を受け付け、
 // 空文字列またはマッチしない場合は INFO になる。
 //
-// 戻り値の *os.File は呼び出し側で defer Close() する。
-func Setup(dir string, level string) (*os.File, error) {
+// buildLog が true のとき、App と同じ stem の <stem>-build.txt を作成し Files.Build に入れる。
+func Setup(dir string, level string, buildLog bool) (Files, error) {
 	if dir == "" {
 		dir = defaultDir
 	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("ログディレクトリの作成に失敗: %w", err)
+		return Files{}, fmt.Errorf("ログディレクトリの作成に失敗: %w", err)
 	}
 
-	filename := time.Now().Format("2006-01-02_150405") + ".log"
-	path := filepath.Join(dir, filename)
+	stem := time.Now().Format("2006-01-02_150405")
+	appPath := filepath.Join(dir, stem+".log")
 
-	f, err := os.Create(path)
+	f, err := os.Create(appPath)
 	if err != nil {
-		return nil, fmt.Errorf("ログファイルの作成に失敗: %w", err)
+		return Files{}, fmt.Errorf("ログファイルの作成に失敗: %w", err)
 	}
 
 	handler := slog.NewJSONHandler(f, &slog.HandlerOptions{
@@ -46,7 +54,18 @@ func Setup(dir string, level string) (*os.File, error) {
 	})
 	slog.SetDefault(slog.New(handler))
 
-	return f, nil
+	out := Files{App: f}
+	if buildLog {
+		buildPath := filepath.Join(dir, stem+"-build.txt")
+		bf, err := os.Create(buildPath)
+		if err != nil {
+			f.Close()
+			return Files{}, fmt.Errorf("ビルドログファイルの作成に失敗: %w", err)
+		}
+		out.Build = bf
+	}
+
+	return out, nil
 }
 
 func parseLevel(s string) slog.Level {

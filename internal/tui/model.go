@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,7 @@ type Model struct {
 
 	scanExcludes []string           // スキャン時の追加除外パターン (.cs-builder.toml の scan.exclude)
 	dllDirMap    map[string]string  // scan root path → コピー先絶対パス (空マップならコピー無効)
+	buildLog     io.Writer          // MSBuild/dotnet 全文ログ (nil ならファイル出力しない)
 
 	width  int // ターミナルの幅 (tea.WindowSizeMsg で更新)
 	height int // ターミナルの高さ (tea.WindowSizeMsg で更新)
@@ -70,17 +72,19 @@ type Model struct {
 //   - scanExcludes : スキャン時の追加除外パターン
 //   - dllDirMap    : scan root path → コピー先絶対パス (空マップならコピー無効)
 //   - maxParallel  : 同一レベル内の最大並列ビルド数 (0=無制限)
+//   - buildLog     : ビルドツールの stdout/stderr 全文を追記する先 (nil なら書かない)
 //
 // 初期状態は stateScanning で、Init() により非同期スキャンが開始される。
-func NewModel(projectRoot string, scanRoots []string, opts builder.BuildOption, scanExcludes []string, dllDirMap map[string]string, maxParallel int) Model {
+func NewModel(projectRoot string, scanRoots []string, opts builder.BuildOption, scanExcludes []string, dllDirMap map[string]string, maxParallel int, buildLog io.Writer) Model {
 	return Model{
-		state:        stateScanning,
-		projectRoot:  projectRoot,
-		scanRoots:    scanRoots,
-		buildOpts:    opts,
-		maxParallel:  maxParallel,
-		scanExcludes: scanExcludes,
-		dllDirMap:    dllDirMap,
+		state:         stateScanning,
+		projectRoot:   projectRoot,
+		scanRoots:     scanRoots,
+		buildOpts:     opts,
+		maxParallel:   maxParallel,
+		scanExcludes:  scanExcludes,
+		dllDirMap:     dllDirMap,
+		buildLog:      buildLog,
 		spinnerFrames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	}
 }
@@ -365,6 +369,16 @@ func (m Model) handleBuildBatch(msg buildBatchMsg) (Model, tea.Cmd) {
 		m.build.appendLog(line)
 	}
 	m.build.completeItem(msg.itemIdx, msg.result)
+
+	if m.buildLog != nil {
+		fmt.Fprintf(m.buildLog, "==== %s success=%v duration=%s ====\n",
+			msg.result.Solution, msg.result.Success, msg.result.Duration.String())
+		fmt.Fprint(m.buildLog, msg.result.Output)
+		if len(msg.result.Output) > 0 && !strings.HasSuffix(msg.result.Output, "\n") {
+			fmt.Fprintln(m.buildLog)
+		}
+		fmt.Fprintln(m.buildLog)
+	}
 
 	slog.Info("build completed",
 		"solution", msg.result.Solution,

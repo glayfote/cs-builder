@@ -53,9 +53,9 @@ func TestBuild_AssemblyMap(t *testing.T) {
 		assembly string
 		wantRel  string
 	}{
-		{"Pfm.Common.IfA", "if_a"},
-		{"Pfm.Common.IfB", "if_b"},
-		{"Pfm.Driver.PkgA", "pkg_a"},
+		{"if_a", "if_a"},
+		{"if_b", "if_b"},
+		{"pkg_a", "pkg_a"},
 	}
 
 	for _, tc := range cases {
@@ -111,13 +111,13 @@ func TestSort_MultiLevel(t *testing.T) {
 		levels[n.AssemblyName] = n.Level
 	}
 
-	if levels["Pfm.Common.IfA"] >= levels["Pfm.Common.IfB"] {
+	if levels["if_a"] >= levels["if_b"] {
 		t.Errorf("if_a (L%d) は if_b (L%d) より前でなければならない",
-			levels["Pfm.Common.IfA"], levels["Pfm.Common.IfB"])
+			levels["if_a"], levels["if_b"])
 	}
-	if levels["Pfm.Common.IfB"] >= levels["Pfm.Common.IfK"] {
+	if levels["if_b"] >= levels["if_k"] {
 		t.Errorf("if_b (L%d) は if_k (L%d) より前でなければならない",
-			levels["Pfm.Common.IfB"], levels["Pfm.Common.IfK"])
+			levels["if_b"], levels["if_k"])
 	}
 }
 
@@ -137,10 +137,10 @@ func TestSort_FullGraph_PkgBLast(t *testing.T) {
 	// pkg_b は pkg_a に依存するので、pkg_b のレベルは pkg_a より大きいはず
 	var pkgALevel, pkgBLevel int
 	for _, n := range sorted {
-		if n.AssemblyName == "Pfm.Driver.PkgA" {
+		if n.AssemblyName == "pkg_a" {
 			pkgALevel = n.Level
 		}
-		if n.AssemblyName == "Pfm.Driver.PkgB" {
+		if n.AssemblyName == "pkg_b" {
 			pkgBLevel = n.Level
 		}
 	}
@@ -184,9 +184,9 @@ func TestSort_DriverDependency(t *testing.T) {
 		order[n.AssemblyName] = i
 	}
 
-	if order["Pfm.Driver.PkgA"] >= order["Pfm.Driver.PkgB"] {
+	if order["pkg_a"] >= order["pkg_b"] {
 		t.Errorf("pkg_a (pos %d) は pkg_b (pos %d) より前でなければならない",
-			order["Pfm.Driver.PkgA"], order["Pfm.Driver.PkgB"])
+			order["pkg_a"], order["pkg_b"])
 	}
 }
 
@@ -195,8 +195,8 @@ func TestExtractAssemblyFromHintPath(t *testing.T) {
 		input string
 		want  string
 	}{
-		{`..\..\5_dll\common\if\if_a\Pfm.Common.IfA.dll`, "Pfm.Common.IfA"},
-		{`../5_dll/driver/pkg_a/Pfm.Driver.PkgA.dll`, "Pfm.Driver.PkgA"},
+		{`..\..\5_dll\common\if\if_a\if_a.dll`, "if_a"},
+		{`../5_dll/driver/pkg_a/pkg_a.dll`, "pkg_a"},
 		{"", ""},
 		{`SomeLib.dll`, "SomeLib"},
 	}
