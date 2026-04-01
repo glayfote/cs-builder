@@ -228,7 +228,23 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "backspace":
 			m.sel = m.sel.deleteFilterChar()
 			return m, nil
-		case "up", "k", "down", "j", " ", "enter", "a":
+		case "up":
+			m.sel = m.sel.cursorUp()
+			return m, nil
+		case "down":
+			m.sel = m.sel.cursorDown()
+			return m, nil
+		case "j", "k", "a", "q":
+			if msg.Type == tea.KeyRunes {
+				for _, r := range msg.Runes {
+					m.sel = m.sel.appendFilterChar(r)
+				}
+			} else if len(key) > 0 {
+				m.sel = m.sel.appendFilterChar(rune(key[0]))
+			}
+			return m, nil
+		case " ", "enter":
+			// 外側の switch でトグル・確定などを処理する
 		default:
 			if msg.Type == tea.KeyRunes {
 				for _, r := range msg.Runes {
@@ -290,9 +306,6 @@ func (m Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = stateBuilding
 		return m, m.fillBuildSlots()
 	case "q":
-		if m.sel.filtering {
-			return m, nil
-		}
 		return m, tea.Quit
 	}
 	return m, nil
